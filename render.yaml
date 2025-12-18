@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: dash-dashboard
+    env: python
+    region: singapore  # or oregon/frankfurt - choose closest to you
+    plan: free
+    
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:server --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.13
+
+      - key: DASH_DEBUG
+        value: false
+    
+    autoDeploy: true  # Auto-deploy on git push
