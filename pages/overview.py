@@ -79,8 +79,17 @@ df = load_data()
 # Pre-compute options
 ALL_ADVERTISERS = sorted(df['advertiser'].dropna().unique()) if len(df) > 0 else []
 ALL_CAMPAIGN_TYPES = sorted(df['campaign_type'].dropna().unique()) if len(df) > 0 else []
-min_date = df['Day'].min() if len(df) > 0 else datetime(2025, 12, 2)
-max_date = df['Day'].max() if len(df) > 0 else datetime(2025, 12, 16)
+
+if len(df) > 0:
+    min_date = df['Day'].min()
+    max_date = df['Day'].max()
+    default_start = max_date - pd.Timedelta(days=14)  # Last 2 weeks
+    default_end = max_date
+else:
+    min_date = datetime(2025, 12, 2)
+    max_date = datetime(2025, 12, 16)
+    default_start = min_date
+    default_end = max_date
 
 # =========================================================
 # HELPER FUNCTIONS
@@ -128,8 +137,8 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         dbc.Col([html.Label("Date Range:", style={'color': 'white', 'fontWeight': 'bold'}),
                  dcc.DatePickerRange(
                      id='ov_date_range',
-                     start_date=datetime(2025, 12, 2),
-                     end_date=datetime(2025, 12, 16),
+                     start_date=default_start,
+                     end_date=default_end,
                      min_date_allowed=min_date,
                      max_date_allowed=max_date,
                      display_format='DD-MM-YYYY',
@@ -253,12 +262,21 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date):
     """Update campaign table with pagination and conditional formatting"""
     # Filter data
     filtered_df = df.copy()
+    # Check if base data exists
+    if len(filtered_df) == 0:
+        return (
+            html.Div("⚠️ No data loaded from source", style={'color': '#ff0000', 'padding': '20px'}),
+            html.Div("Please check data source connection", style={'color': '#aaa'}),
+            []
+    )
     
-    # Date filtering
+    # Date filtering with normalization
     if start_date and end_date:
-        start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date)
-        filtered_df = filtered_df[(filtered_df['Day'] >= start_dt) & (filtered_df['Day'] <= end_dt)]
+        start_dt = pd.to_datetime(start_date).normalize()
+        end_dt = pd.to_datetime(end_date).normalize()
+        filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
+        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & (filtered_df['Day_normalized'] <= end_dt)]
+        filtered_df = filtered_df.drop('Day_normalized', axis=1)
     
     if advertisers:
         filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
@@ -419,11 +437,13 @@ def show_day_breakdown(selected_rows, table_data, close_clicks, advertisers, cam
     # Filter data
     filtered_df = df.copy()
     
-    # Date filtering
+    # Date filtering with normalization
     if start_date and end_date:
-        start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date)
-        filtered_df = filtered_df[(filtered_df['Day'] >= start_dt) & (filtered_df['Day'] <= end_dt)]
+        start_dt = pd.to_datetime(start_date).normalize()
+        end_dt = pd.to_datetime(end_date).normalize()
+        filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
+        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & (filtered_df['Day_normalized'] <= end_dt)]
+        filtered_df = filtered_df.drop('Day_normalized', axis=1)
     
     if advertisers:
         filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
@@ -481,10 +501,14 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     trend_df = df.copy()
     
     # Date filtering
-    if start_date and end_date:        
-        start_dt = pd.to_datetime(start_date)
-        end_dt = pd.to_datetime(end_date)
-        trend_df = trend_df[(trend_df['Day'] >= start_dt) & (trend_df['Day'] <= end_dt)]
+    # Date filtering with normalization
+    # Date filtering with normalization
+    if start_date and end_date:
+        start_dt = pd.to_datetime(start_date).normalize()
+        end_dt = pd.to_datetime(end_date).normalize()
+        trend_df['Day_normalized'] = trend_df['Day'].dt.normalize()
+        trend_df = trend_df[(trend_df['Day_normalized'] >= start_dt) & (trend_df['Day_normalized'] <= end_dt)]
+        trend_df = trend_df.drop('Day_normalized', axis=1)
     
     if advertisers:
         trend_df = trend_df[trend_df['advertiser'].isin(advertisers)]
@@ -569,5 +593,6 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
 
