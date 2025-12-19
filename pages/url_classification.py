@@ -284,7 +284,8 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Calculate color thresholds for metric_color
     avg = g[metric_color].mean()
     std = g[metric_color].std()
-    good_threshold = avg + 0.5 * std
+    min_val = g[metric_color].min()
+    max_val = g[metric_color].max()
     
     # Create hover text based on treemap type
     # Create hover text based on treemap type
@@ -304,7 +305,8 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'CPA: ' + g['cpa'].round(2).astype(str) + '<br>' +
             'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str)
         )
-    
+    color_min = max(0, min_val - 0.2 * std)  # Slightly below minimum
+    color_max = max_val + 0.2 * std
     fig = go.Figure(go.Treemap(
         labels=g[label_col],
         parents=[''] * len(g),
@@ -312,8 +314,8 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         marker=dict(
         colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
         cmid=avg,
-        cmin=0,
-        cmax=good_threshold,
+        cmin=color_min,  # Red at minimum
+        cmax=color_max,
         colorbar=dict(title=metric_color.upper(), tickfont=dict(color='white')),
         line=dict(width=2, color='#000')
     ),
@@ -757,7 +759,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     # CONTEXTUALITY TABLE
     # CONTEXTUALITY TABLE
     html.H4("URL-Concept Contextuality Analysis", style={'color': '#5dade2', 'marginTop': '20px'}),
-    html.P("Shows performance by contextuality level. Click any row to see top 5 URL-concept pairs.", 
+    html.P("Shows performance by contextuality level. Click any row to see top 5 URL-Campaign pairs.", 
        style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
     dash_table.DataTable(
         id='contextuality_table',
@@ -778,43 +780,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 ),
 
 # Inline drill-down section (collapsible)
-    dbc.Collapse(
-        dbc.Card([
-            dbc.CardHeader([
-                html.H5(id='ctx_drilldown_title', style={'color': '#17a2b8', 'display': 'inline-block', 'marginBottom': '0'}),
-                dbc.Button("✕ Close", id="close_ctx_drilldown", size="sm", color="secondary", 
-                           style={'float': 'right'})
-                ], style={'backgroundColor': '#222', 'border': '1px solid #444'}),
-            dbc.CardBody([
-                dash_table.DataTable(
-                    id='ctx_drilldown_table',
-                    columns=[
-                        {'name': 'URL', 'id': 'url'},
-                        {'name': 'Concept', 'id': 'concept'},
-                        {'name': 'Clicks', 'id': 'clicks'},
-                        {'name': 'Conv', 'id': 'conversions'},
-                        {'name': 'CVR %', 'id': 'cvr'},
-                        {'name': 'CTR %', 'id': 'ctr'},
-                        {'name': 'CPA', 'id': 'cpa'},
-                        {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
-                ],
-                    style_data_conditional=[
-                        {'if': {'filter_query': '{cvr_vs_ctx} > 0', 'column_id': 'cvr'}, 'color': '#00ff00'},
-                        {'if': {'filter_query': '{cvr_vs_ctx} < 0', 'column_id': 'cvr'}, 'color': '#ff0000'},
-                        {'if': {'filter_query': '{ctr_vs_ctx} > 0', 'column_id': 'ctr'}, 'color': '#00ff00'},
-                        {'if': {'filter_query': '{ctr_vs_ctx} < 0', 'column_id': 'ctr'}, 'color': '#ff0000'},
-                        {'if': {'filter_query': '{cpa_vs_ctx} < 0', 'column_id': 'cpa'}, 'color': '#00ff00'},
-                        {'if': {'filter_query': '{cpa_vs_ctx} > 0', 'column_id': 'cpa'}, 'color': '#ff0000'},
-                        {'if': {'filter_query': '{mnet_roas_vs_ctx} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00'},
-                        {'if': {'filter_query': '{mnet_roas_vs_ctx} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000'}
-                        ],
-                    **TABLE_STYLE
-                    )
-                ], style={'backgroundColor': '#222', 'padding': '15px'})
-            ], style={'marginTop': '10px', 'marginBottom': '20px'}),
-        id="ctx_drilldown_collapse",
-        is_open=False
-        ),
+    html.Div(id="ctx_drilldown_section", style={'marginTop': '10px'}),
     html.Hr(style={'borderColor': '#444'}),
     # BUBBLE CHARTS - Sprig URL & Domain (Full) - 2x2
     html.Hr(style={'borderColor': '#444'}),
@@ -1216,86 +1182,100 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     
     # Return with all clickData set to None to clear them
     return True, f"Drill-down for: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+
 @callback(
-    [Output("ctx_drilldown_collapse", "is_open"),
-     Output("ctx_drilldown_title", "children"),
-     Output("ctx_drilldown_table", "data"),
-     Output("contextuality_table", "selected_rows")],
+    Output("ctx_drilldown_section", "children"),
     [Input("contextuality_table", "selected_rows"),
-     Input("close_ctx_drilldown", "n_clicks"),     
      Input('adv_dd','value'),
      Input('camp_type_dd','value'),
      Input('camp_dd','value')],
     [State("contextuality_table", "data")],
     prevent_initial_call=True
 )
-def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types, camps, table_data):
-    ctx = dash.callback_context
+def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table_data):
+    """Show inline URL-Campaign pairs when contextuality row is clicked"""
     
-    if not ctx.triggered:
-        return False, "", [], []
+    # If no row selected, hide the section
+    if not selected_rows or not table_data:
+        return html.Div()
     
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    # Get selected contextuality value
+    row_idx = selected_rows[0]
+    contextuality_value = table_data[row_idx]['contextuality'].replace('▶ ', '')
+    ctx_cvr = table_data[row_idx]['cvr']
     
-    # Close drill-down
-    if trigger_id == "close_ctx_drilldown":
-        return False, "", [], []
+    # Filter data
+    d = filter_dataframe(df, advs, camp_types, camps)
+    d = d[d['contextuality'] == contextuality_value].copy()
     
-    # Open drill-down
-    if trigger_id == "contextuality_table" and selected_rows and len(selected_rows) > 0:
-        row_idx = selected_rows[0]
-        contextuality_value = table_data[row_idx]['contextuality'].replace('▶ ', '')  # Remove arrow
-        ctx_cvr = table_data[row_idx]['cvr']
-        
-        # Filter data
-        # Filter data
-        d = filter_dataframe(df, advs, camp_types, camps)
-        
-        # Filter by contextuality
-        d = d[d['contextuality'] == contextuality_value].copy()
-        
-        # Explode concepts and aggregate by URL-concept pairs
-        d_exploded = d.explode('concepts').dropna(subset=['concepts'])
-        
-        pairs = d_exploded.groupby(['url', 'concepts']).agg({
-            'clicks': 'sum',
-            'impressions': 'sum',
-            'conversions': 'sum',
-            'adv_cost': 'sum',
-            'max_cost': 'sum',
-            'adv_value': 'sum',
-            'mnet_roas': 'mean'
-        }).reset_index()
-        
-        # Calculate metrics
-        pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], np.nan)
-        pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], np.nan)
-        pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], np.nan)
-        
-        # Get top 5 by clicks
-        top_pairs = pairs.nlargest(5, 'clicks').copy()
-        
-        # Calculate comparison columns for color coding
-        top_pairs['cvr_vs_ctx'] = top_pairs['cvr'] - ctx_cvr
-        top_pairs['ctr_vs_ctx'] = top_pairs['ctr'] - table_data[row_idx]['ctr']
-        top_pairs['cpa_vs_ctx'] = top_pairs['cpa'] - table_data[row_idx]['cpa']
-        top_pairs['mnet_roas_vs_ctx'] = top_pairs['mnet_roas'] - table_data[row_idx]['mnet_roas']
-        
-        # Rename concepts column to concept
-        top_pairs = top_pairs.rename(columns={'concepts': 'concept'})
-        
-        # Format for display
-        drilldown_data = top_pairs[['url', 'concept', 'clicks', 'conversions', 'cvr', 'cvr_vs_ctx', 'ctr', 'ctr_vs_ctx', 'cpa', 'cpa_vs_ctx', 'mnet_roas', 'mnet_roas_vs_ctx']].round(2).to_dict('records')
-        
-        return True, f"Top 5 URL-Concept Pairs for: {contextuality_value}", drilldown_data, selected_rows
+    if len(d) == 0:
+        return html.Div()
     
-    return False, "", [], []
-
-# =========================================================
-# RUN
-# =========================================================
-
-
-
-
-
+    # Aggregate by URL-Campaign pairs
+    pairs = d.groupby(['url', 'campaign'], dropna=False).agg({
+        'clicks': 'sum',
+        'impressions': 'sum',
+        'conversions': 'sum',
+        'adv_cost': 'sum',
+        'max_cost': 'sum',
+        'adv_value': 'sum',
+        'mnet_roas': 'mean'
+    }).reset_index()
+    
+    # Calculate metrics
+    pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], np.nan)
+    pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], np.nan)
+    pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], np.nan)
+    
+    # Get top 5 by clicks
+    top_pairs = pairs.nlargest(5, 'clicks').copy()
+    
+    if len(top_pairs) == 0:
+        return html.Div()
+    
+    # Calculate comparison columns for color coding
+    top_pairs['cvr_vs_ctx'] = top_pairs['cvr'] - ctx_cvr
+    top_pairs['ctr_vs_ctx'] = top_pairs['ctr'] - table_data[row_idx]['ctr']
+    top_pairs['cpa_vs_ctx'] = top_pairs['cpa'] - table_data[row_idx]['cpa']
+    top_pairs['mnet_roas_vs_ctx'] = top_pairs['mnet_roas'] - table_data[row_idx]['mnet_roas']
+    
+    # Format for display
+    drilldown_data = top_pairs[['url', 'campaign', 'clicks', 'conversions', 'cvr', 'cvr_vs_ctx', 'ctr', 'ctr_vs_ctx', 'cpa', 'cpa_vs_ctx', 'mnet_roas', 'mnet_roas_vs_ctx']].round(2).to_dict('records')
+    
+    # Return expanded card with table
+    return dbc.Card([
+        dbc.CardHeader([
+            html.H5(f"📊 Top 5 URL-Campaign Pairs for Contextuality: {contextuality_value}", 
+                    style={'color': '#17a2b8', 'marginBottom': '0'}),
+        ], style={'backgroundColor': '#333', 'padding': '10px'}),
+        dbc.CardBody([
+            dash_table.DataTable(
+                data=drilldown_data,
+                columns=[
+                    {'name': 'URL', 'id': 'url'},
+                    {'name': 'Campaign', 'id': 'campaign'},
+                    {'name': 'Clicks', 'id': 'clicks'},
+                    {'name': 'Conv', 'id': 'conversions'},
+                    {'name': 'CVR %', 'id': 'cvr'},
+                    {'name': 'CTR %', 'id': 'ctr'},
+                    {'name': 'CPA', 'id': 'cpa'},
+                    {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
+                ],
+                style_data_conditional=[
+                    {'if': {'filter_query': '{cvr_vs_ctx} > 0', 'column_id': 'cvr'}, 'color': '#00ff00'},
+                    {'if': {'filter_query': '{cvr_vs_ctx} < 0', 'column_id': 'cvr'}, 'color': '#ff0000'},
+                    {'if': {'filter_query': '{ctr_vs_ctx} > 0', 'column_id': 'ctr'}, 'color': '#00ff00'},
+                    {'if': {'filter_query': '{ctr_vs_ctx} < 0', 'column_id': 'ctr'}, 'color': '#ff0000'},
+                    {'if': {'filter_query': '{cpa_vs_ctx} < 0', 'column_id': 'cpa'}, 'color': '#00ff00'},
+                    {'if': {'filter_query': '{cpa_vs_ctx} > 0', 'column_id': 'cpa'}, 'color': '#ff0000'},
+                    {'if': {'filter_query': '{mnet_roas_vs_ctx} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00'},
+                    {'if': {'filter_query': '{mnet_roas_vs_ctx} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000'}
+                ],
+                page_size=5,
+                style_table={'overflowX': 'auto'},
+                style_header={'backgroundColor': '#444', 'color': 'white', 'fontWeight': 'bold'},
+                style_data={'backgroundColor': '#1a1a1a', 'color': 'white', 'fontSize': '11px'},
+                style_cell={'textAlign': 'left', 'padding': '8px'}
+            )
+        ], style={'backgroundColor': '#1a1a1a', 'padding': '15px'})
+    ], style={'marginTop': '10px', 'border': '2px solid #17a2b8'})
