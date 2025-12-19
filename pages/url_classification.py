@@ -7,7 +7,8 @@ from itertools import combinations
 from functools import lru_cache
 import dash
 from dash import dcc, html, Input, Output, dash_table, State, register_page, callback
-
+import io
+import requests
 import plotly.express as px
 import plotly.graph_objects as go
 @lru_cache(maxsize=1)
@@ -37,8 +38,7 @@ register_page(__name__, path='/', name='URL')
 # =========================================================
 # CONFIG & LOAD DATA FROM GOOGLE DRIVE
 # =========================================================
-import io
-import requests
+
 
 # Google Drive file ID - REPLACE THIS with your actual file ID
 GDRIVE_FILE_ID = "13mP3OCBSet5pdu28oVDXcIyQU4TVKLwd"
@@ -1291,3 +1291,4 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
 # =========================================================
 # RUN
 # =========================================================
+
