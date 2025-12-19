@@ -11,6 +11,11 @@ import io
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
+GDRIVE_FILE_ID = "13mP3OCBSet5pdu28oVDXcIyQU4TVKLwd"
+
+# Convert to direct download link
+GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
+
 @lru_cache(maxsize=1)
 def load_data_cached():
     """Load data once and cache it"""
@@ -41,10 +46,6 @@ register_page(__name__, path='/', name='URL')
 
 
 # Google Drive file ID - REPLACE THIS with your actual file ID
-GDRIVE_FILE_ID = "13mP3OCBSet5pdu28oVDXcIyQU4TVKLwd"
-
-# Convert to direct download link
-GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
 
 # =========================================================
 # LOAD DATA
@@ -1102,9 +1103,9 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
                         click_url_final_roas, click_dom_final_cvr, click_dom_final_roas,
                         close_clicks, advs, camp_types, camps, is_open):
     ctx = dash.callback_context
-    
     if not ctx.triggered:
-        return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
+        raise dash.exceptions.PreventUpdate
+
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
@@ -1293,6 +1294,7 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
 # =========================================================
 # RUN
 # =========================================================
+
 
 
 
