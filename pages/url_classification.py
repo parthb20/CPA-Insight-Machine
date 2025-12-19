@@ -22,12 +22,29 @@ register_page(__name__, path='/', name='URL')
 # =========================================================
 # CONFIG
 # =========================================================
-DATA_FILE = "URL_File_Full_02Dec2025_16Dec2025.csv"
+# =========================================================
+# CONFIG & LOAD DATA FROM GOOGLE DRIVE
+# =========================================================
+import io
+import requests
 
+# Google Drive file ID - REPLACE THIS with your actual file ID
+GDRIVE_FILE_ID = "13mP3OCBSet5pdu28oVDXcIyQU4TVKLwd"
+
+# Convert to direct download link
+GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
+
+try:
+    response = requests.get(GDRIVE_URL)
+    response.raise_for_status()
+    df = pd.read_csv(io.StringIO(response.text))
+except Exception as e:
+    print(f"Error loading data from Google Drive: {e}")
+    df = pd.DataFrame()  # Empty dataframe as fallback
 # =========================================================
 # LOAD DATA
 # =========================================================
-df = pd.read_csv(DATA_FILE)
+
 
 # =========================================================
 # COLUMN NORMALIZATION
