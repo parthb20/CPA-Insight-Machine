@@ -73,7 +73,10 @@ COL_MAP = {
     'Adv ROAS': 'adv_roas'
 }
 df = df.rename(columns={c: COL_MAP[c] for c in df.columns if c in COL_MAP})
-
+for col in ['advertiser', 'campaign_type', 'campaign', 'domain', 
+            'sprig_url_top', 'sprig_url_final', 'sprig_domain_top', 'sprig_domain_final']:
+    if col in df.columns:
+        df[col] = df[col].astype('category')
 for c in ['clicks','impressions','conversions','adv_cost','max_cost','adv_value','mnet_roas','adv_roas']:
     if c not in df.columns:
         df[c] = 0
@@ -178,29 +181,34 @@ def extract_concepts(url):
     return concepts
 
 df['concepts'] = df['url'].apply(extract_concepts)
+# PRE-FILTER: Only keep concepts that appear in at least 5 URLs
+from collections import Counter
+all_concepts = [c for concepts in df['concepts'] for c in concepts]
+concept_counts = Counter(all_concepts)
+valid_concepts = {c for c, count in concept_counts.items() if count >= 5}
+
+# Filter concepts to only valid ones
+df['concepts'] = df['concepts'].apply(lambda x: [c for c in x if c in valid_concepts])
 
 # Explode concepts for aggregation
 df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 # Use the actual contextuality column from CSV
 df_contextuality = df[df['contextuality'].notna()].copy()
-@lru_cache(maxsize=128)
-def get_filtered_data_hash(advs_tuple, camp_types_tuple, camps_tuple):
-    """Return hash of filter parameters for cache invalidation"""
-    return hash((advs_tuple, camp_types_tuple, camps_tuple))
-
+    
 def filter_dataframe(d, advs, camp_types, camps):
-    """Centralized filtering function"""
+    mask = pd.Series(True, index=d.index)  # Start with all True
     if advs:
-        d = d[d['advertiser'].isin(advs)]
+        mask &= d['advertiser'].isin(advs)
     if camp_types:
-        d = d[d['campaign_type'].isin(camp_types)]
+        mask &= d['campaign_type'].isin(camp_types)
     if camps:
-        d = d[d['campaign'].isin(camps)]
-    return d
+        mask &= d['campaign'].isin(camps)
+    return d[mask]  # No .copy()
 
 # =========================================================
 # WEIGHTED AGGREGATION
 # =========================================================
+    
 def weighted_aggregate(df, col):
     g = df.groupby(col, dropna=True).agg(
         clicks=('clicks','sum'),
@@ -242,6 +250,7 @@ def top3_urls(df, group_col):
 # TREEMAP FUNCTIONS
 # =========================================================
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
+    # Filter to top 10 by clicks BEFORE passing to create_treemap
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
@@ -851,7 +860,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 )
 def update_filters(advs, camp_types):
     # Filter for Campaign Type dropdown
-    d = df.copy()
+    d = df
     if advs:
         d = d[d['advertiser'].isin(advs)]
     campaign_types = sorted(d['campaign_type'].dropna().unique())
@@ -964,9 +973,10 @@ def update_all(advs, camp_types, camps, sprig_count):
         camps_tuple = tuple(camps) if camps else ()
         
         # Filter data ONCE
-        d = filter_dataframe(df.copy(), advs, camp_types, camps)
-        d_concepts = filter_dataframe(df_concepts.copy(), advs, camp_types, camps)
-        d_contextuality = filter_dataframe(df_contextuality.copy(), advs, camp_types, camps)
+        d = filter_dataframe(df, advs, camp_types, camps)
+        d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)
+        d_contextuality = filter_dataframe(df_contextuality, advs, camp_types, camps)
+
         
         # Early return if no data
         if len(d) == 0:
@@ -1161,7 +1171,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
     
     # Filter data
-    d = df.copy()
+    d = filter_dataframe(df, advs, camp_types, camps)  # Use the optimized function
     if advs:
         d = d[d['advertiser'].isin(advs)]
     if camp_types:
@@ -1294,5 +1304,6 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
 # =========================================================
 # RUN
 # =========================================================
+
 
 
