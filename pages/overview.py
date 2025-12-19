@@ -54,7 +54,10 @@ def load_data():
         numeric_cols = ['impressions', 'clicks', 'conversions', 'adv_cost', 'max_cost', 
                         'payout', 'actual_payout']
         for c in numeric_cols:
-            df[c] = pd.to_numeric(df.get(c, 0), errors='coerce').fillna(0)
+            if c not in df.columns:
+                df[c] = 0
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
         
         # Calculate metrics
         df['ctr'] = np.where(df['impressions'] > 0, 100 * df['clicks'] / df['impressions'], 0)
@@ -490,3 +493,4 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
