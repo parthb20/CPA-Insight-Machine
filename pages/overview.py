@@ -248,31 +248,15 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
      Input('ov_camp_type_dd', 'value'),
      Input('ov_date_range', 'start_date'),
      Input('ov_date_range', 'end_date'),
-     Input('campaign_table', 'active_cell')],
-    [State('campaign_table', 'data'),
-     State('expanded_campaigns', 'data')]
+     Input('expanded_campaigns', 'data')],  # <-- MOVED HERE as Input
+    prevent_initial_call=False
 )
-def update_campaign_table(advertisers, campaign_types, start_date, end_date, 
-                         active_cell, table_data, expanded_campaigns):
-    """Update campaign table with pagination and drilldown"""
-    
-    ctx = dash.callback_context
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+def update_campaign_table(advertisers, campaign_types, start_date, end_date, expanded_campaigns):
+    """Update campaign table - initial load and filter changes"""
     
     # Initialize expanded_campaigns if None
     if expanded_campaigns is None:
         expanded_campaigns = []
-    
-    # Handle expand/collapse toggle
-    if triggered_id == 'campaign_table' and active_cell and table_data:
-        if active_cell['column_id'] == 'expand':
-            clicked_row = table_data[active_cell['row']]
-            if clicked_row.get('row_type') == 'campaign':
-                campaign_name = clicked_row['campaign']
-                if campaign_name in expanded_campaigns:
-                    expanded_campaigns.remove(campaign_name)
-                else:
-                    expanded_campaigns = [campaign_name]  # Only allow one expanded at a time
     
     # Filter data
     filtered_df = df.copy()
@@ -464,6 +448,41 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date,
     campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
     
     return stats_display, table, campaign_options, expanded_campaigns
+
+
+# Add second callback for handling row clicks
+@callback(
+    Output('expanded_campaigns', 'data', allow_duplicate=True),
+    Input('campaign_table', 'active_cell'),
+    State('campaign_table', 'data'),
+    State('expanded_campaigns', 'data'),
+    prevent_initial_call=True
+)
+def handle_row_click(active_cell, table_data, expanded_campaigns):
+    """Handle expand/collapse when clicking on arrow"""
+    if not active_cell or not table_data:
+        raise dash.exceptions.PreventUpdate
+    
+    if active_cell['column_id'] != 'expand':
+        raise dash.exceptions.PreventUpdate
+    
+    clicked_row = table_data[active_cell['row']]
+    
+    if clicked_row.get('row_type') != 'campaign':
+        raise dash.exceptions.PreventUpdate
+    
+    campaign_name = clicked_row['campaign']
+    
+    if expanded_campaigns is None:
+        expanded_campaigns = []
+    
+    if campaign_name in expanded_campaigns:
+        expanded_campaigns.remove(campaign_name)
+    else:
+        expanded_campaigns = [campaign_name]
+    
+    return expanded_campaigns
+
 @callback(
     Output('ov_daily_trends', 'figure'),
     [Input('ov_adv_dd', 'value'),
@@ -571,6 +590,7 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
 
 
