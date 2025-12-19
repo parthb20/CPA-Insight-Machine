@@ -268,7 +268,7 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date):
             html.Div("⚠️ No data loaded from source", style={'color': '#ff0000', 'padding': '20px'}),
             html.Div("Please check data source connection", style={'color': '#aaa'}),
             []
-    )
+        )
     
     # Date filtering with normalization
     if start_date and end_date:
@@ -593,6 +593,7 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
 
 
