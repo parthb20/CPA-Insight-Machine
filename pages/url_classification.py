@@ -1301,3 +1301,4 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
             )
         ], style={'backgroundColor': '#1a1a1a', 'padding': '15px'})
     ], style={'marginTop': '10px', 'border': '2px solid #17a2b8'})
+
