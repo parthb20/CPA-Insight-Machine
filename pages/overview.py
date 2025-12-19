@@ -12,9 +12,22 @@ dash.register_page(__name__, path='/overview', name='Overview')
 # =========================================================
 # LOAD DATA
 # =========================================================
-DATA_FILE = "Top Level View_02Dec2025_16Dec2025.csv"  # ← CHANGE THIS TO YOUR FILE NAME
-df = pd.read_csv(DATA_FILE)
+# =========================================================
+# LOAD DATA FROM GOOGLE DRIVE
+# =========================================================
+import io
+import requests
 
+OVERVIEW_FILE_ID = "13sSmNN7f2e1FkCji6TVCA9BaGRDfneQO"
+OVERVIEW_URL = f"https://drive.google.com/uc?export=download&id={OVERVIEW_FILE_ID}"
+
+try:
+    response = requests.get(OVERVIEW_URL)
+    response.raise_for_status()
+    df = pd.read_csv(io.StringIO(response.text))
+except Exception as e:
+    print(f"Error loading Overview data: {e}")
+    df = pd.DataFrame()
 # =========================================================
 # DATA PREPROCESSING
 # =========================================================
