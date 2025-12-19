@@ -1172,12 +1172,6 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     
     # Filter data
     d = filter_dataframe(df, advs, camp_types, camps)  # Use the optimized function
-    if advs:
-        d = d[d['advertiser'].isin(advs)]
-    if camp_types:
-        d = d[d['campaign_type'].isin(camp_types)]
-    if camps:
-        d = d[d['campaign'].isin(camps)]
     
     # Filter based on the clicked value
     if drill_col == 'concepts':
@@ -1253,13 +1247,8 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
         ctx_cvr = table_data[row_idx]['cvr']
         
         # Filter data
-        d = df.copy()
-        if advs:
-            d = d[d['advertiser'].isin(advs)]
-        if camp_types:
-            d = d[d['campaign_type'].isin(camp_types)]
-        if camps:
-            d = d[d['campaign'].isin(camps)]
+        # Filter data
+        d = filter_dataframe(df, advs, camp_types, camps)
         
         # Filter by contextuality
         d = d[d['contextuality'] == contextuality_value].copy()
@@ -1304,6 +1293,7 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
 # =========================================================
 # RUN
 # =========================================================
+
 
 
 
