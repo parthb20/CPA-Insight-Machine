@@ -79,6 +79,8 @@ df = load_data()
 # Pre-compute options
 ALL_ADVERTISERS = sorted(df['advertiser'].dropna().unique()) if len(df) > 0 else []
 ALL_CAMPAIGN_TYPES = sorted(df['campaign_type'].dropna().unique()) if len(df) > 0 else []
+min_date = df['Day'].min() if len(df) > 0 else datetime(2025, 12, 2)
+max_date = df['Day'].max() if len(df) > 0 else datetime(2025, 12, 16)
 
 # =========================================================
 # HELPER FUNCTIONS
@@ -117,9 +119,24 @@ def aggregate_metrics(data, group_cols):
 # =========================================================
 # LAYOUT
 # =========================================================
+
 layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     html.H2("Top Level Overview", style={'color': '#5dade2', 'textAlign': 'center', 'padding': '20px'}),
     
+    # ADD DATE RANGE HERE (before other filters)
+    dbc.Row([
+        dbc.Col([html.Label("Date Range:", style={'color': 'white', 'fontWeight': 'bold'}),
+                 dcc.DatePickerRange(
+                     id='ov_date_range',
+                     start_date=datetime(2025, 12, 2),
+                     end_date=datetime(2025, 12, 16),
+                     min_date_allowed=min_date,
+                     max_date_allowed=max_date,
+                     display_format='DD-MM-YYYY',
+                     style={'marginBottom': '10px'}
+                 )
+                ], width=6)
+    ], style={'marginBottom': '20px'}),    
     # Filters
     dbc.Row([
         dbc.Col(dcc.Dropdown(
@@ -157,7 +174,18 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     ),
     
     # Selected Campaign Day-wise Breakdown
-    html.Div(id='ov_day_breakdown', style={'marginTop': '20px'}),
+    dbc.Collapse(
+        dbc.Card([
+            dbc.CardHeader([
+                html.H5(id='ov_day_breakdown_title', style={'color': '#5dade2', 'display': 'inline-block', 'marginBottom': '0'}),
+                dbc.Button("✕ Close", id="close_day_breakdown", size="sm", color="secondary", 
+                           style={'float': 'right'})
+            ], style={'backgroundColor': '#333'}),
+            dbc.CardBody(id='ov_day_breakdown_table', style={'backgroundColor': '#1a1a1a'})
+        ], style={'marginTop': '10px'}),
+        id='ov_day_breakdown_collapse',
+        is_open=False
+    ),
     
     html.Hr(style={'borderColor': '#444'}),
     
@@ -217,12 +245,20 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
      Output('ov_campaign_table_container', 'children'),
      Output('ov_campaign_multi_dd', 'options')],
     [Input('ov_adv_dd', 'value'),
-     Input('ov_camp_type_dd', 'value')]
+     Input('ov_camp_type_dd', 'value'),
+     Input('ov_date_range', 'start_date'),
+     Input('ov_date_range', 'end_date')]
 )
-def update_campaign_table(advertisers, campaign_types):
-    """Update campaign table with pagination"""
+def update_campaign_table(advertisers, campaign_types, start_date, end_date):
+    """Update campaign table with pagination and conditional formatting"""
     # Filter data
     filtered_df = df.copy()
+    
+    # Date filtering
+    if start_date and end_date:
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        filtered_df = filtered_df[(filtered_df['Day'] >= start_dt) & (filtered_df['Day'] <= end_dt)]
     
     if advertisers:
         filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
@@ -236,7 +272,7 @@ def update_campaign_table(advertisers, campaign_types):
             []
         )
     
-    # Calculate overall stats
+    # Calculate overall stats (for comparison)
     total_impressions = filtered_df['impressions'].sum()
     total_clicks = filtered_df['clicks'].sum()
     total_conversions = filtered_df['conversions'].sum()
@@ -270,9 +306,9 @@ def update_campaign_table(advertisers, campaign_types):
     # Aggregate by campaign
     campaign_agg = aggregate_metrics(filtered_df, ['campaign'])
     campaign_agg = campaign_agg.round(2)
-    campaign_agg = campaign_agg.sort_values('payout', ascending=False)  # Sort by payout
+    campaign_agg = campaign_agg.sort_values('payout', ascending=False)
     
-    # Create DataTable with pagination (MUCH FASTER!)
+    # Create DataTable with conditional formatting
     table = dash_table.DataTable(
         id='campaign_table',
         data=campaign_agg.to_dict('records'),
@@ -288,11 +324,11 @@ def update_campaign_table(advertisers, campaign_types):
             {'name': 'Adv ROAS', 'id': 'adv_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
             {'name': 'Payout', 'id': 'payout', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
         ],
-        page_size=20,  # Show 20 campaigns per page
+        page_size=20,
         page_action='native',
         sort_action='native',
         filter_action='native',
-        row_selectable='single',  # Allow selecting one campaign
+        row_selectable='single',
         selected_rows=[],
         style_table={'overflowX': 'auto'},
         style_header={
@@ -306,44 +342,89 @@ def update_campaign_table(advertisers, campaign_types):
             'color': 'white'
         },
         style_data_conditional=[
-            {
-                'if': {'row_index': 'odd'},
-                'backgroundColor': '#2a2a2a'
-            },
-            {
-                'if': {'state': 'selected'},
-                'backgroundColor': '#17a2b8',
-                'border': '1px solid white'
-            }
+            {'if': {'row_index': 'odd'}, 'backgroundColor': '#2a2a2a'},
+            {'if': {'state': 'selected'}, 'backgroundColor': '#17a2b8', 'border': '1px solid white'},
+            
+            # CVR: green if > avg, red if < avg
+            {'if': {'filter_query': f'{{cvr}} > {agg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cvr}} < {agg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            
+            # CTR: green if > avg, red if < avg
+            {'if': {'filter_query': f'{{ctr}} > {agg_ctr}', 'column_id': 'ctr'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{ctr}} < {agg_ctr}', 'column_id': 'ctr'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            
+            # CPA: green if < avg (lower is better), red if > avg
+            {'if': {'filter_query': f'{{cpa}} < {agg_cpa}', 'column_id': 'cpa'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cpa}} > {agg_cpa}', 'column_id': 'cpa'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            
+            # Mnet ROAS: green if > avg, red if < avg
+            {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{mnet_roas}} < {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            
+            # Adv ROAS: green if > avg, red if < avg
+            {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{adv_roas}} < {agg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
         ],
-        style_cell={
-            'textAlign': 'left',
-            'padding': '10px',
-            'fontSize': '12px'
-        }
+        style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '12px'}
     )
     
     campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
     
     return stats_display, table, campaign_options
 
-
 @callback(
-    Output('ov_day_breakdown', 'children'),
+    [Output('ov_day_breakdown_collapse', 'is_open'),
+     Output('ov_day_breakdown_title', 'children'),
+     Output('ov_day_breakdown_table', 'children'),
+     Output('campaign_table', 'selected_rows')],
     [Input('campaign_table', 'selected_rows'),
      Input('campaign_table', 'data'),
+     Input('close_day_breakdown', 'n_clicks'),
      Input('ov_adv_dd', 'value'),
-     Input('ov_camp_type_dd', 'value')]
+     Input('ov_camp_type_dd', 'value'),
+     Input('ov_date_range', 'start_date'),
+     Input('ov_date_range', 'end_date')],
+    prevent_initial_call=True
 )
-def show_day_breakdown(selected_rows, table_data, advertisers, campaign_types):
-    """Show day-wise breakdown when a campaign is selected"""
+def show_day_breakdown(selected_rows, table_data, close_clicks, advertisers, campaign_types, start_date, end_date):
+    """Show collapsible day-wise breakdown when a campaign row is clicked"""
+    from dash import callback_context
+    
+    ctx = callback_context
+    if not ctx.triggered:
+        return False, "", html.Div(), []
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Close if close button clicked
+    if trigger_id == 'close_day_breakdown':
+        return False, "", html.Div(), []
+    
+    # Open if row selected
     if not selected_rows or not table_data:
-        return html.Div()
+        return False, "", html.Div(), []
     
     selected_campaign = table_data[selected_rows[0]]['campaign']
     
     # Filter data
     filtered_df = df.copy()
+    
+    # Date filtering
+    if start_date and end_date:
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        filtered_df = filtered_df[(filtered_df['Day'] >= start_dt) & (filtered_df['Day'] <= end_dt)]
+    
     if advertisers:
         filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
     if campaign_types:
@@ -358,7 +439,7 @@ def show_day_breakdown(selected_rows, table_data, advertisers, campaign_types):
     day_agg = day_agg.round(2)
     
     if len(day_agg) == 0:
-        return html.Div()
+        return False, "", html.Div(), []
     
     # Create day-wise table
     day_table = dash_table.DataTable(
@@ -378,37 +459,32 @@ def show_day_breakdown(selected_rows, table_data, advertisers, campaign_types):
         page_action='native',
         sort_action='native',
         style_table={'overflowX': 'auto'},
-        style_header={
-            'backgroundColor': '#444',
-            'color': 'white',
-            'fontWeight': 'bold'
-        },
-        style_data={
-            'backgroundColor': '#1a1a1a',
-            'color': '#aaa',
-            'fontSize': '11px'
-        },
+        style_header={'backgroundColor': '#444', 'color': 'white', 'fontWeight': 'bold'},
+        style_data={'backgroundColor': '#1a1a1a', 'color': '#aaa', 'fontSize': '11px'},
         style_cell={'textAlign': 'left', 'padding': '8px'}
     )
     
-    return html.Div([
-        html.H5(f"Day-wise Breakdown: {selected_campaign}", 
-                style={'color': '#5dade2', 'marginTop': '20px'}),
-        day_table
-    ])
-
+    return True, f"📅 Day-wise Breakdown: {selected_campaign}", day_table, selected_rows
 
 @callback(
     Output('ov_daily_trends', 'figure'),
     [Input('ov_adv_dd', 'value'),
      Input('ov_camp_type_dd', 'value'),
      Input('ov_metrics_checklist', 'value'),
-     Input('ov_campaign_multi_dd', 'value')]
+     Input('ov_campaign_multi_dd', 'value'),
+     Input('ov_date_range', 'start_date'),  # ADD THIS
+     Input('ov_date_range', 'end_date')]
 )
-def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_campaigns):
+def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_campaigns, start_date, end_date):
     """Update daily trends chart"""
     # Filter data
     trend_df = df.copy()
+    
+    # Date filtering
+    if start_date and end_date:        
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        trend_df = trend_df[(trend_df['Day'] >= start_dt) & (trend_df['Day'] <= end_dt)]
     
     if advertisers:
         trend_df = trend_df[trend_df['advertiser'].isin(advertisers)]
@@ -493,4 +569,5 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
