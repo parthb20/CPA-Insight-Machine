@@ -4,13 +4,25 @@ import numpy as np
 import re
 from collections import Counter
 from itertools import combinations
-
+from functools import lru_cache
 import dash
 from dash import dcc, html, Input, Output, dash_table, State, register_page, callback
 
 import plotly.express as px
 import plotly.graph_objects as go
+@lru_cache(maxsize=1)
+def load_data_cached():
+    """Load data once and cache it"""
+    try:
+        response = requests.get(GDRIVE_URL)
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text))
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return pd.DataFrame()
 
+# Replace line ~41 with:
+df = load_data_cached()
 
 register_page(__name__, path='/', name='URL')
 
@@ -34,13 +46,6 @@ GDRIVE_FILE_ID = "13mP3OCBSet5pdu28oVDXcIyQU4TVKLwd"
 # Convert to direct download link
 GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
 
-try:
-    response = requests.get(GDRIVE_URL)
-    response.raise_for_status()
-    df = pd.read_csv(io.StringIO(response.text))
-except Exception as e:
-    print(f"Error loading data from Google Drive: {e}")
-    df = pd.DataFrame()  # Empty dataframe as fallback
 # =========================================================
 # LOAD DATA
 # =========================================================
@@ -175,6 +180,20 @@ df['concepts'] = df['url'].apply(extract_concepts)
 df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 # Use the actual contextuality column from CSV
 df_contextuality = df[df['contextuality'].notna()].copy()
+@lru_cache(maxsize=128)
+def get_filtered_data_hash(advs_tuple, camp_types_tuple, camps_tuple):
+    """Return hash of filter parameters for cache invalidation"""
+    return hash((advs_tuple, camp_types_tuple, camps_tuple))
+
+def filter_dataframe(d, advs, camp_types, camps):
+    """Centralized filtering function"""
+    if advs:
+        d = d[d['advertiser'].isin(advs)]
+    if camp_types:
+        d = d[d['campaign_type'].isin(camp_types)]
+    if camps:
+        d = d[d['campaign'].isin(camps)]
+    return d
 
 # =========================================================
 # WEIGHTED AGGREGATION
@@ -844,6 +863,71 @@ def update_filters(advs, camp_types):
         [{'label': x, 'value': x} for x in campaigns]
     )
 
+def create_stats_display(total_clicks, total_conversions, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas):
+    """Extract stats display creation"""
+    return dbc.Card([
+        dbc.CardBody([
+            html.H4("Aggregated Stats", style={'color': '#5dade2', 'marginBottom': '20px', 'fontSize': '22px', 'fontWeight': 'bold'}),
+            dbc.Row([
+                dbc.Col([html.Div([html.Strong("Clicks: ", style={'color': '#aaa'}), html.Span(f"{int(total_clicks):,}", style={'color': '#5dade2', 'fontSize': '18px'})])], width=2),
+                dbc.Col([html.Div([html.Strong("Conversions: ", style={'color': '#aaa'}), html.Span(f"{total_conversions:.2f}", style={'color': '#5dade2', 'fontSize': '18px'})])], width=2),
+                dbc.Col([html.Div([html.Strong("CVR: ", style={'color': '#aaa'}), html.Span(f"{agg_cvr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})])], width=2),
+                dbc.Col([html.Div([html.Strong("CTR: ", style={'color': '#aaa'}), html.Span(f"{agg_ctr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})])], width=2),
+                dbc.Col([html.Div([html.Strong("CPA: ", style={'color': '#aaa'}), html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00', 'fontSize': '18px'})])], width=2),
+                dbc.Col([html.Div([html.Strong("ROAS: ", style={'color': '#aaa'}), html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})])], width=2)
+            ])
+        ])
+    ], style={'backgroundColor': '#222', 'border': '1px solid #444', 'marginBottom': '30px'})
+
+def get_best_worst_items(g_agg, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_name, limit):
+    """Extract best/worst calculation logic"""
+    all_items = g_agg.dropna(subset=['cvr']).copy()
+    all_items['cvr_vs_avg'] = ((all_items['cvr'] - agg_cvr) / agg_cvr * 100).round(1) if agg_cvr > 0 else 0
+    
+    # Best items
+    best_candidates = all_items[(all_items['clicks'] >= 10) & (all_items['cvr'] > 0)].copy()
+    if len(best_candidates) == 0:
+        best_candidates = all_items[all_items['cvr'] > 0].copy()
+    
+    if len(best_candidates) > 0:
+        best_candidates['score'] = best_candidates['cvr'] * np.log1p(best_candidates['clicks'])
+        best_df = best_candidates.sort_values('score', ascending=False).head(limit)
+        best_ids = set(best_df[col_name].tolist())
+    else:
+        best_df = pd.DataFrame()
+        best_ids = set()
+    
+    # Worst items
+    worst_candidates = all_items[
+        (all_items['clicks'] >= 10) & 
+        (all_items['cvr'] <= 0.6) &
+        (~all_items[col_name].isin(best_ids))
+    ].copy()
+    
+    if len(worst_candidates) > 0:
+        worst_df = worst_candidates.sort_values('clicks', ascending=False).head(limit)
+    else:
+        worst_df = pd.DataFrame()
+    
+    # Format for display
+    best_display = format_table_data(best_df, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_name)
+    worst_display = format_table_data(worst_df, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_name)
+    
+    return best_display, worst_display
+
+def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_name):
+    """Format dataframe for table display"""
+    if len(df_input) == 0:
+        return []
+    
+    df = df_input.copy()
+    df['avg_cvr'] = agg_cvr
+    df['ctr_vs_avg'] = df['ctr'] - agg_ctr
+    df['cpa_vs_avg'] = df['cpa'] - agg_cpa
+    df['mnet_roas_vs_avg'] = df['mnet_roas'] - agg_mnet_roas
+    
+    return df[[col_name, 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
+
 @callback(
     [Output('agg_stats', 'children'),
      Output('treemap_cvr_ctr', 'figure'),
@@ -868,29 +952,26 @@ def update_filters(advs, camp_types):
 )
 def update_all(advs, camp_types, camps, sprig_count):    
     try:
-        # Default counts if not set
         if sprig_count is None:
             sprig_count = 5
-            
-        # Filter data
-        d = df.copy()
-        d_concepts = df_concepts.copy()
-        d_contextuality = df_contextuality.copy()
         
-        if advs:
-            d = d[d['advertiser'].isin(advs)]
-            d_concepts = d_concepts[d_concepts['advertiser'].isin(advs)]
-            d_contextuality = d_contextuality[d_contextuality['advertiser'].isin(advs)]
-        if camp_types:
-            d = d[d['campaign_type'].isin(camp_types)]
-            d_concepts = d_concepts[d_concepts['campaign_type'].isin(camp_types)]
-            d_contextuality = d_contextuality[d_contextuality['campaign_type'].isin(camp_types)]
-        if camps:
-            d = d[d['campaign'].isin(camps)]
-            d_concepts = d_concepts[d_concepts['campaign'].isin(camps)]
-            d_contextuality = d_contextuality[d_contextuality['campaign'].isin(camps)]
-
-        # Calculate aggregated stats for filtered data
+        # Convert to tuples for hashing
+        advs_tuple = tuple(advs) if advs else ()
+        camp_types_tuple = tuple(camp_types) if camp_types else ()
+        camps_tuple = tuple(camps) if camps else ()
+        
+        # Filter data ONCE
+        d = filter_dataframe(df.copy(), advs, camp_types, camps)
+        d_concepts = filter_dataframe(df_concepts.copy(), advs, camp_types, camps)
+        d_contextuality = filter_dataframe(df_contextuality.copy(), advs, camp_types, camps)
+        
+        # Early return if no data
+        if len(d) == 0:
+            empty = go.Figure()
+            empty.update_layout(title="No data", plot_bgcolor='#111', paper_bgcolor='#111', font=dict(color='white'))
+            return (html.Div("No data"), empty, empty, [], [], [], [], [], empty, empty, empty, empty, empty, empty, empty, empty)
+        
+        # Calculate aggregated stats ONCE
         total_clicks = d['clicks'].sum()
         total_impressions = d['impressions'].sum()
         total_conversions = d['conversions'].sum()
@@ -901,195 +982,15 @@ def update_all(advs, camp_types, camps, sprig_count):
         agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
         agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
         agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
-        agg_mnet_roas = d['mnet_roas'].mean()
+        agg_mnet_roas = (total_adv_value / total_max_cost) if total_max_cost > 0 else 0
         agg_adv_roas = d['adv_roas'].mean()
         
-        # Create stats display
-        # Create stats display
-        stats_display = dbc.Card([
-            dbc.CardBody([
-                html.H4("Aggregated Stats", style={'color': '#5dade2', 'marginBottom': '20px', 'fontSize': '22px', 'fontWeight': 'bold'}),        dbc.Row([
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("Clicks: ", style={'color': '#aaa'}),
-                            html.Span(f"{int(total_clicks):,}", style={'color': '#5dade2', 'fontSize': '18px'})
-                        ])
-                    ], width=2),
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("Conversions: ", style={'color': '#aaa'}),
-                            html.Span(f"{total_conversions:.2f}", style={'color': '#5dade2', 'fontSize': '18px'})
-                        ])
-                    ], width=2),
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("CVR: ", style={'color': '#aaa'}),
-                            html.Span(f"{agg_cvr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})
-                        ])
-                    ], width=2),
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("CTR: ", style={'color': '#aaa'}),
-                            html.Span(f"{agg_ctr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})
-                        ])
-                    ], width=2),
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("CPA: ", style={'color': '#aaa'}),
-                            html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00', 'fontSize': '18px'})
-                        ])
-                    ], width=2),
-                    dbc.Col([
-                        html.Div([
-                            html.Strong("ROAS: ", style={'color': '#aaa'}),
-                            html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})
-                        ])
-                    ], width=2)
-                ])
-            ])
-        ], style={'backgroundColor': '#222', 'border': '1px solid #444', 'marginBottom': '30px'})
-
-        # Empty figure template
-        empty = go.Figure()
-        empty.update_layout(title="No data", plot_bgcolor='#111', paper_bgcolor='#111', font=dict(color='white'))
-
-        # Concept aggregation
-        # Concept aggregation
-        g_concept = weighted_aggregate(d_concepts, 'concepts')
-        
-        # Contextuality aggregation
-        g_contextuality = weighted_aggregate(d_contextuality, 'contextuality')
-        
-        # Treemaps: CVR-CTR (sorted by CTR desc, colored by CVR) - TOP 10 DEFAULT
-        # Get top 10 concepts by clicks first
-        top_concepts = g_concept.nlargest(10, 'clicks')['concepts'].tolist()
-        g_concept_top = g_concept[g_concept['concepts'].isin(top_concepts)]
-
-# Treemaps: CVR-CTR (sorted by CTR desc, colored by CVR) - TOP 10 DEFAULT
         avg_metrics = {'cvr': agg_cvr, 'ctr': agg_ctr, 'cpa': agg_cpa, 'mnet_roas': agg_mnet_roas}
-        tree_cvr_ctr = create_treemap(g_concept_top, 'cvr', 'ctr', 
-                               'CVR vs CTR - Top 10 by Clicks (sorted by CTR ↓, colored by CVR, click to drill-down)', 
-                               show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=avg_metrics)
-# Treemaps: ROAS-CPA (sorted by CPA desc, colored by ROAS) - TOP 10 DEFAULT
-        tree_roas_cpa = create_treemap(g_concept_top, 'mnet_roas', 'cpa', 
-                                'ROAS vs CPA - Top 10 by Clicks (sorted by CPA ↓, colored by ROAS, click to drill-down)', 
-                                show_cvr_ctr=False, top_n=10, col_name='concepts', avg_metrics=avg_metrics)
         
-        # Concept tables with smart scoring
-        all_concepts = g_concept.dropna(subset=['cvr']).copy()
-        all_concepts['cvr_vs_avg'] = ((all_concepts['cvr'] - agg_cvr) / agg_cvr * 100).round(1) if agg_cvr > 0 else 0
-        
-        # BEST: Only non-zero CVR with min 10 clicks, scored by CVR * log(clicks)
-        best_candidates = all_concepts[(all_concepts['clicks'] >= 10) & (all_concepts['cvr'] > 0)].copy()
-        if len(best_candidates) == 0:
-            best_candidates = all_concepts[all_concepts['cvr'] > 0].copy()
-        
-        if len(best_candidates) > 0:
-            best_candidates['score'] = best_candidates['cvr'] * np.log1p(best_candidates['clicks'])
-            best_concepts_df = best_candidates.sort_values('score', ascending=False).head(10)
-            best_concept_ids = set(best_concepts_df['concepts'].tolist())
-        else:
-            best_concepts_df = pd.DataFrame()
-            best_concept_ids = set()
-        
-        # WORST: CVR < 0.6% OR CVR = 0, with min 10 clicks, sorted by clicks descending
-        # EXCLUDE concepts that are in the best list
-        worst_candidates = all_concepts[
-            (all_concepts['clicks'] >= 10) & 
-            (all_concepts['cvr'] <= 0.6) &
-            (~all_concepts['concepts'].isin(best_concept_ids))
-        ].copy()
-        if len(worst_candidates) == 0:
-            worst_candidates = all_concepts[
-                (all_concepts['cvr'] <= 0.6) &
-                (~all_concepts['concepts'].isin(best_concept_ids))
-            ].copy()
-        
-        if len(worst_candidates) > 0:
-            worst_concepts_df = worst_candidates.sort_values('clicks', ascending=False).head(10)
-        else:
-            worst_concepts_df = pd.DataFrame()
-        
-        # Add avg CVR column and format for display
-        best_concepts_display = best_concepts_df.copy() if len(best_concepts_df) > 0 else pd.DataFrame()
-        worst_concepts_display = worst_concepts_df.copy() if len(worst_concepts_df) > 0 else pd.DataFrame()
-        
-        if len(best_concepts_display) > 0:
-            best_concepts_display['avg_cvr'] = agg_cvr
-            best_concepts_display['ctr_vs_avg'] = best_concepts_display['ctr'] - agg_ctr
-            best_concepts_display['cpa_vs_avg'] = best_concepts_display['cpa'] - agg_cpa
-            best_concepts_display['mnet_roas_vs_avg'] = best_concepts_display['mnet_roas'] - agg_mnet_roas
-            best_concepts = best_concepts_display[['concepts', 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
-        else:
-            best_concepts = []
-            
-        if len(worst_concepts_display) > 0:
-            worst_concepts_display['avg_cvr'] = agg_cvr
-            worst_concepts_display['ctr_vs_avg'] = worst_concepts_display['ctr'] - agg_ctr
-            worst_concepts_display['cpa_vs_avg'] = worst_concepts_display['cpa'] - agg_cpa
-            worst_concepts_display['mnet_roas_vs_avg'] = worst_concepts_display['mnet_roas'] - agg_mnet_roas
-            worst_concepts = worst_concepts_display[['concepts', 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
-        else:
-            worst_concepts = []
-        
-        # URL aggregation
+        # Aggregate ONCE for each dimension (reuse these)
+        g_concept = weighted_aggregate(d_concepts, 'concepts')
         g_url = weighted_aggregate(d, 'url')
-        
-        # URL tables - same logic as concepts
-        all_urls = g_url.dropna(subset=['cvr']).copy()
-        all_urls['cvr_vs_avg'] = ((all_urls['cvr'] - agg_cvr) / agg_cvr * 100).round(1) if agg_cvr > 0 else 0
-        
-        # BEST URLs: Only non-zero CVR
-        best_url_candidates = all_urls[(all_urls['clicks'] >= 10) & (all_urls['cvr'] > 0)].copy()
-        if len(best_url_candidates) == 0:
-            best_url_candidates = all_urls[all_urls['cvr'] > 0].copy()
-        
-        if len(best_url_candidates) > 0:
-            best_url_candidates['score'] = best_url_candidates['cvr'] * np.log1p(best_url_candidates['clicks'])
-            best_urls_df = best_url_candidates.sort_values('score', ascending=False).head(5)
-            best_url_ids = set(best_urls_df['url'].tolist())
-        else:
-            best_urls_df = pd.DataFrame()
-            best_url_ids = set()
-        
-        # WORST URLs: CVR < 0.6% OR CVR = 0, high clicks, EXCLUDE best URLs
-        worst_url_candidates = all_urls[
-            (all_urls['clicks'] >= 10) & 
-            (all_urls['cvr'] <= 0.6) &
-            (~all_urls['url'].isin(best_url_ids))
-        ].copy()
-        if len(worst_url_candidates) == 0:
-            worst_url_candidates = all_urls[
-                (all_urls['cvr'] <= 0.6) &
-                (~all_urls['url'].isin(best_url_ids))
-            ].copy()
-        
-        if len(worst_url_candidates) > 0:
-            worst_urls_df = worst_url_candidates.sort_values('clicks', ascending=False).head(5)
-        else:
-            worst_urls_df = pd.DataFrame()
-        
-        # Add avg CVR column and format for display
-        best_urls_display = best_urls_df.copy() if len(best_urls_df) > 0 else pd.DataFrame()
-        worst_urls_display = worst_urls_df.copy() if len(worst_urls_df) > 0 else pd.DataFrame()
-        
-        if len(best_urls_display) > 0:
-            best_urls_display['avg_cvr'] = agg_cvr
-            best_urls_display['ctr_vs_avg'] = best_urls_display['ctr'] - agg_ctr
-            best_urls_display['cpa_vs_avg'] = best_urls_display['cpa'] - agg_cpa
-            best_urls_display['mnet_roas_vs_avg'] = best_urls_display['mnet_roas'] - agg_mnet_roas
-            best_urls = best_urls_display[['url', 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
-        else:
-            best_urls = []
-            
-        if len(worst_urls_display) > 0:
-            worst_urls_display['avg_cvr'] = agg_cvr
-            worst_urls_display['ctr_vs_avg'] = worst_urls_display['ctr'] - agg_ctr
-            worst_urls_display['cpa_vs_avg'] = worst_urls_display['cpa'] - agg_cpa
-            worst_urls_display['mnet_roas_vs_avg'] = worst_urls_display['mnet_roas'] - agg_mnet_roas
-            worst_urls = worst_urls_display[['url', 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
-        else:
-            worst_urls = []
+        g_contextuality = weighted_aggregate(d_contextuality, 'contextuality')
         
         # Sprig aggregations
         g_url_top = weighted_aggregate(d, 'sprig_url_top')
@@ -1097,60 +998,53 @@ def update_all(advs, camp_types, camps, sprig_count):
         g_url_final = weighted_aggregate(d, 'sprig_url_final')
         g_dom_final = weighted_aggregate(d, 'sprig_domain_final')
         
-        # Hover maps
-        h_contextuality = top3_urls(d_contextuality, 'contextuality')
-        h_url_top = top3_urls(d, 'sprig_url_top')
-        h_dom_top = top3_urls(d, 'sprig_domain_top')
-        h_url_final = top3_urls(d, 'sprig_url_final')
-        h_dom_final = top3_urls(d, 'sprig_domain_final')
+        # Stats display
+        stats_display = create_stats_display(total_clicks, total_conversions, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas)
         
-        # Create all bubble charts with top_n parameter
-        metrics = ['cvr', 'ctr', 'cpa', 'mnet_roas']
+        # Treemaps (limit to top 10 for performance)
+        top_concepts = g_concept.nlargest(10, 'clicks')['concepts'].tolist()
+        g_concept_top = g_concept[g_concept['concepts'].isin(top_concepts)]
         
-        # Show all contextuality items (no top_n limit)
-        # Generate contextuality table data with drilldown arrows
+        tree_cvr_ctr = create_treemap(g_concept_top, 'cvr', 'ctr', 
+                               'CVR vs CTR - Top 10 by Clicks', 
+                               show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=avg_metrics)
+        tree_roas_cpa = create_treemap(g_concept_top, 'mnet_roas', 'cpa', 
+                                'ROAS vs CPA - Top 10 by Clicks', 
+                                show_cvr_ctr=False, top_n=10, col_name='concepts', avg_metrics=avg_metrics)
+        
+        # Best/Worst concepts and URLs (extract into helper functions)
+        best_concepts, worst_concepts = get_best_worst_items(g_concept, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, 'concepts', 10)
+        best_urls, worst_urls = get_best_worst_items(g_url, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, 'url', 5)
+        
+        # Contextuality table
         if len(g_contextuality) > 0:
             ctx_table_data = g_contextuality.copy()
-    # Add arrow to contextuality value
             ctx_table_data['contextuality'] = '▶ ' + ctx_table_data['contextuality'].astype(str)
             ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 'cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas']].round(2).to_dict('records')
         else:
             ctx_table_data = []
-        # Create treemaps for Sprig categories
-        tree_url_top_cvr_ctr = create_treemap(g_url_top, 'cvr', 'ctr', 
-                               'Sprig URL Top: CVR vs CTR (sorted by CTR ↓, colored by CVR)', 
-                               show_cvr_ctr=True, top_n=10, col_name='sprig_url_top', avg_metrics=avg_metrics)
-        tree_url_top_roas_cpa = create_treemap(g_url_top, 'mnet_roas', 'cpa', 
-                               'Sprig URL Top: ROAS vs CPA (sorted by CPA ↓, colored by ROAS)', 
-                               show_cvr_ctr=False, top_n=10, col_name='sprig_url_top', avg_metrics=avg_metrics)
-        tree_dom_top_cvr_ctr = create_treemap(g_dom_top, 'cvr', 'ctr', 
-                               'Sprig Domain Top: CVR vs CTR (sorted by CTR ↓, colored by CVR)', 
-                               show_cvr_ctr=True, top_n=10, col_name='sprig_domain_top', avg_metrics=avg_metrics)
-        tree_dom_top_roas_cpa = create_treemap(g_dom_top, 'mnet_roas', 'cpa', 
-                               'Sprig Domain Top: ROAS vs CPA (sorted by CPA ↓, colored by ROAS)', 
-                               show_cvr_ctr=False, top_n=10, col_name='sprig_domain_top', avg_metrics=avg_metrics)
-        tree_url_final_cvr_ctr = create_treemap(g_url_final, 'cvr', 'ctr', 
-                               'Sprig URL Final: CVR vs CTR (sorted by CTR ↓, colored by CVR)', 
-                               show_cvr_ctr=True, top_n=10, col_name='sprig_url_final', avg_metrics=avg_metrics)
-        tree_url_final_roas_cpa = create_treemap(g_url_final, 'mnet_roas', 'cpa', 
-                               'Sprig URL Final: ROAS vs CPA (sorted by CPA ↓, colored by ROAS)', 
-                               show_cvr_ctr=False, top_n=10, col_name='sprig_url_final', avg_metrics=avg_metrics)
-        tree_dom_final_cvr_ctr = create_treemap(g_dom_final, 'cvr', 'ctr', 
-                               'Sprig Domain Final: CVR vs CTR (sorted by CTR ↓, colored by CVR)', 
-                               show_cvr_ctr=True, top_n=10, col_name='sprig_domain_final', avg_metrics=avg_metrics)
-        tree_dom_final_roas_cpa = create_treemap(g_dom_final, 'mnet_roas', 'cpa', 
-                               'Sprig Domain Final: ROAS vs CPA (sorted by CPA ↓, colored by ROAS)', 
-                               show_cvr_ctr=False, top_n=10, col_name='sprig_domain_final', avg_metrics=avg_metrics)
+        
+        # Sprig treemaps
+        tree_url_top_cvr_ctr = create_treemap(g_url_top, 'cvr', 'ctr', 'Sprig URL Top: CVR vs CTR', True, 10, 'sprig_url_top', avg_metrics)
+        tree_url_top_roas_cpa = create_treemap(g_url_top, 'mnet_roas', 'cpa', 'Sprig URL Top: ROAS vs CPA', False, 10, 'sprig_url_top', avg_metrics)
+        tree_dom_top_cvr_ctr = create_treemap(g_dom_top, 'cvr', 'ctr', 'Sprig Domain Top: CVR vs CTR', True, 10, 'sprig_domain_top', avg_metrics)
+        tree_dom_top_roas_cpa = create_treemap(g_dom_top, 'mnet_roas', 'cpa', 'Sprig Domain Top: ROAS vs CPA', False, 10, 'sprig_domain_top', avg_metrics)
+        tree_url_final_cvr_ctr = create_treemap(g_url_final, 'cvr', 'ctr', 'Sprig URL Final: CVR vs CTR', True, 10, 'sprig_url_final', avg_metrics)
+        tree_url_final_roas_cpa = create_treemap(g_url_final, 'mnet_roas', 'cpa', 'Sprig URL Final: ROAS vs CPA', False, 10, 'sprig_url_final', avg_metrics)
+        tree_dom_final_cvr_ctr = create_treemap(g_dom_final, 'cvr', 'ctr', 'Sprig Domain Final: CVR vs CTR', True, 10, 'sprig_domain_final', avg_metrics)
+        tree_dom_final_roas_cpa = create_treemap(g_dom_final, 'mnet_roas', 'cpa', 'Sprig Domain Final: ROAS vs CPA', False, 10, 'sprig_domain_final', avg_metrics)
+        
         return (
             stats_display,
             tree_cvr_ctr, tree_roas_cpa,
             best_concepts, worst_concepts,
             best_urls, worst_urls,
-            ctx_table_data,  # Contextuality tables
+            ctx_table_data,
             tree_url_top_cvr_ctr, tree_url_top_roas_cpa,
             tree_dom_top_cvr_ctr, tree_dom_top_roas_cpa,
             tree_url_final_cvr_ctr, tree_url_final_roas_cpa,
-            tree_dom_final_cvr_ctr, tree_dom_final_roas_cpa)
+            tree_dom_final_cvr_ctr, tree_dom_final_roas_cpa
+        )
         
     except Exception as e:
         print(f"Error: {e}")
@@ -1158,20 +1052,7 @@ def update_all(advs, camp_types, camps, sprig_count):
         traceback.print_exc()
         empty = go.Figure()
         empty.update_layout(title=f"Error: {str(e)}", plot_bgcolor='#111', paper_bgcolor='#111', font=dict(color='white'))
-        empty_stats = html.Div("Error loading stats", style={'color': 'red'})
-    
-    # Return correct number of values: 1 stats + 2 treemaps + 4 tables + 12 figures = 19 total
-        return (
-            empty_stats,  # 1: agg_stats
-            empty, empty,  # 2: treemap_cvr_ctr, treemap_roas_cpa
-            [], [], [], [],  # 4: best_concepts, worst_concepts, best_urls, worst_urls (tables)
-            [],  # 1: contextuality_table  # 4: ctx_cvr, ctx_ctr, ctx_cpa, ctx_mnet_roas
-            empty, empty,  # 2: treemap_url_top_cvr_ctr, treemap_url_top_roas_cpa
-            empty, empty,  # 2: treemap_dom_top_cvr_ctr, treemap_dom_top_roas_cpa
-            empty, empty,  # 2: treemap_url_final_cvr_ctr, treemap_url_final_roas_cpa
-            empty, empty   # 2: treemap_dom_final_cvr_ctr, treemap_dom_final_roas_cpa
-    )
-    
+        return (html.Div("Error", style={'color': 'red'}), empty, empty, [], [], [], [], [], empty, empty, empty, empty, empty, empty, empty, empty)    
 @callback(
     [Output("drilldown_modal", "is_open"),
      Output("drilldown_title", "children"),
