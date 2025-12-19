@@ -10,10 +10,28 @@ dash.register_page(__name__, path="/creative", name="Creative & SERP Analysis")
 # =========================================================
 # LOAD DATA
 # =========================================================
-DATA_FILE = "Creative&SERP File_02Dec2025_16Dec2025.csv"
-AD_TITLE_FILE = "AdTitle_Raw_02Dec2025_16Dec2025.csv"  # New file for ad title analysis
+# =========================================================
+# LOAD DATA FROM GOOGLE DRIVE
+# =========================================================
+import io
+import requests
 
-df = pd.read_csv(DATA_FILE)
+# File 1: Creative & SERP Data
+CREATIVE_SERP_FILE_ID = "1BQO3sBMssqH9nd2bXt8OMF1SGv-S99pM"
+CREATIVE_SERP_URL = f"https://drive.google.com/uc?export=download&id={CREATIVE_SERP_FILE_ID}"
+
+# File 2: Ad Title Data
+AD_TITLE_FILE_ID = "13sSmNN7f2e1FkCji6TVCA9BaGRDfneQO"
+AD_TITLE_URL = f"https://drive.google.com/uc?export=download&id={AD_TITLE_FILE_ID}"
+
+# Load Creative & SERP data
+try:
+    response = requests.get(CREATIVE_SERP_URL)
+    response.raise_for_status()
+    df = pd.read_csv(io.StringIO(response.text))
+except Exception as e:
+    print(f"Error loading Creative & SERP data: {e}")
+    df = pd.DataFrame()
 
 # Column mapping for Creative & SERP data
 COL_MAP = {
@@ -35,10 +53,13 @@ COL_MAP = {
 df = df.rename(columns={c: COL_MAP[c] for c in df.columns if c in COL_MAP})
 
 # Load Ad Title data
+# Load Ad Title data
 AD_TITLE_ERROR = None
 AD_TITLE_COLUMNS = []
 try:
-    ad_df = pd.read_csv(AD_TITLE_FILE, encoding='latin1')
+    response = requests.get(AD_TITLE_URL)
+    response.raise_for_status()
+    ad_df = pd.read_csv(io.StringIO(response.text), encoding='latin1')    
     AD_TITLE_COLUMNS = list(ad_df.columns)  # Store original columns for debugging
     
     # Column mapping for Ad Title data
@@ -619,7 +640,7 @@ def update_ad_title_content(advs, camp_types, camps):
         
         return html.Div([
             html.H4("Ad Title Analysis", style={'color': '#ff0000'}),
-            html.P(f"File: {AD_TITLE_FILE}", style={'color': '#aaa'}),
+            html.P(f"Google Drive File ID: {AD_TITLE_FILE_ID}", style={'color': '#aaa'}),
             html.P(error_msg, style={'color': '#ffcc00', 'backgroundColor': '#331100', 'padding': '10px', 'borderRadius': '5px'}),
             html.P("Please check:", style={'color': '#aaa', 'marginTop': '10px'}),
             html.Ul([
