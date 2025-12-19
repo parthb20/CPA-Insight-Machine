@@ -194,6 +194,10 @@ df['concepts'] = df['concepts'].apply(lambda x: [c for c in x if c in valid_conc
 # Explode concepts for aggregation
 df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 # Use the actual contextuality column from CSV
+# Map the column name first
+if 'URL-Concept Contextuality' in df.columns and 'contextuality' not in df.columns:
+    df['contextuality'] = df['URL-Concept Contextuality']
+
 df_contextuality = df[df['contextuality'].notna()].copy()
     
 def filter_dataframe(d, advs, camp_types, camps):
@@ -1199,17 +1203,30 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
     if not selected_rows or not table_data:
         return html.Div()
     
-    # Get selected contextuality value
+    # Get selected contextuality value (remove the arrow prefix)
     row_idx = selected_rows[0]
-    contextuality_value = table_data[row_idx]['contextuality'].replace('▶ ', '')
+    contextuality_value = table_data[row_idx]['contextuality'].replace('▶ ', '').strip()
     ctx_cvr = table_data[row_idx]['cvr']
+    ctx_ctr = table_data[row_idx]['ctr']
+    ctx_cpa = table_data[row_idx]['cpa']
+    ctx_mnet_roas = table_data[row_idx]['mnet_roas']
     
     # Filter data
     d = filter_dataframe(df, advs, camp_types, camps)
+    
+    # Make sure contextuality column exists
+    if 'contextuality' not in d.columns:
+        return html.Div("Contextuality column not found", style={'color': 'red', 'padding': '10px'})
+    
+    # Filter by selected contextuality value
     d = d[d['contextuality'] == contextuality_value].copy()
     
     if len(d) == 0:
-        return html.Div()
+        return dbc.Alert(
+            f"No data found for contextuality: {contextuality_value}",
+            color="warning",
+            style={'marginTop': '10px'}
+        )
     
     # Aggregate by URL-Campaign pairs
     pairs = d.groupby(['url', 'campaign'], dropna=False).agg({
@@ -1218,14 +1235,14 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
         'conversions': 'sum',
         'adv_cost': 'sum',
         'max_cost': 'sum',
-        'adv_value': 'sum',
-        'mnet_roas': 'mean'
+        'adv_value': 'sum'
     }).reset_index()
     
     # Calculate metrics
-    pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], np.nan)
-    pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], np.nan)
-    pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], np.nan)
+    pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], 0)
+    pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], 0)
+    pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], 0)
+    pairs['mnet_roas'] = np.where(pairs['max_cost']>0, pairs['adv_value']/pairs['max_cost'], 0)
     
     # Get top 5 by clicks
     top_pairs = pairs.nlargest(5, 'clicks').copy()
@@ -1235,9 +1252,9 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
     
     # Calculate comparison columns for color coding
     top_pairs['cvr_vs_ctx'] = top_pairs['cvr'] - ctx_cvr
-    top_pairs['ctr_vs_ctx'] = top_pairs['ctr'] - table_data[row_idx]['ctr']
-    top_pairs['cpa_vs_ctx'] = top_pairs['cpa'] - table_data[row_idx]['cpa']
-    top_pairs['mnet_roas_vs_ctx'] = top_pairs['mnet_roas'] - table_data[row_idx]['mnet_roas']
+    top_pairs['ctr_vs_ctx'] = top_pairs['ctr'] - ctx_ctr
+    top_pairs['cpa_vs_ctx'] = top_pairs['cpa'] - ctx_cpa
+    top_pairs['mnet_roas_vs_ctx'] = top_pairs['mnet_roas'] - ctx_mnet_roas
     
     # Format for display
     drilldown_data = top_pairs[['url', 'campaign', 'clicks', 'conversions', 'cvr', 'cvr_vs_ctx', 'ctr', 'ctr_vs_ctx', 'cpa', 'cpa_vs_ctx', 'mnet_roas', 'mnet_roas_vs_ctx']].round(2).to_dict('records')
@@ -1247,6 +1264,8 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
         dbc.CardHeader([
             html.H5(f"📊 Top 5 URL-Campaign Pairs for Contextuality: {contextuality_value}", 
                     style={'color': '#17a2b8', 'marginBottom': '0'}),
+            html.P(f"Total pairs analyzed: {len(pairs)} | Showing top 5 by clicks", 
+                   style={'color': '#aaa', 'fontSize': '11px', 'marginBottom': '0'})
         ], style={'backgroundColor': '#333', 'padding': '10px'}),
         dbc.CardBody([
             dash_table.DataTable(
@@ -1254,28 +1273,31 @@ def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table
                 columns=[
                     {'name': 'URL', 'id': 'url'},
                     {'name': 'Campaign', 'id': 'campaign'},
-                    {'name': 'Clicks', 'id': 'clicks'},
-                    {'name': 'Conv', 'id': 'conversions'},
-                    {'name': 'CVR %', 'id': 'cvr'},
-                    {'name': 'CTR %', 'id': 'ctr'},
-                    {'name': 'CPA', 'id': 'cpa'},
-                    {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
+                    {'name': 'Clicks', 'id': 'clicks', 'type': 'numeric'},
+                    {'name': 'Conv', 'id': 'conversions', 'type': 'numeric'},
+                    {'name': 'CVR %', 'id': 'cvr', 'type': 'numeric'},
+                    {'name': 'CTR %', 'id': 'ctr', 'type': 'numeric'},
+                    {'name': 'CPA', 'id': 'cpa', 'type': 'numeric'},
+                    {'name': 'Mnet ROAS', 'id': 'mnet_roas', 'type': 'numeric'}
                 ],
                 style_data_conditional=[
-                    {'if': {'filter_query': '{cvr_vs_ctx} > 0', 'column_id': 'cvr'}, 'color': '#00ff00'},
-                    {'if': {'filter_query': '{cvr_vs_ctx} < 0', 'column_id': 'cvr'}, 'color': '#ff0000'},
-                    {'if': {'filter_query': '{ctr_vs_ctx} > 0', 'column_id': 'ctr'}, 'color': '#00ff00'},
-                    {'if': {'filter_query': '{ctr_vs_ctx} < 0', 'column_id': 'ctr'}, 'color': '#ff0000'},
-                    {'if': {'filter_query': '{cpa_vs_ctx} < 0', 'column_id': 'cpa'}, 'color': '#00ff00'},
-                    {'if': {'filter_query': '{cpa_vs_ctx} > 0', 'column_id': 'cpa'}, 'color': '#ff0000'},
-                    {'if': {'filter_query': '{mnet_roas_vs_ctx} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00'},
-                    {'if': {'filter_query': '{mnet_roas_vs_ctx} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000'}
+                    {'if': {'filter_query': '{cvr_vs_ctx} > 0', 'column_id': 'cvr'}, 'color': '#00ff00', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{cvr_vs_ctx} < 0', 'column_id': 'cvr'}, 'color': '#ff0000', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{ctr_vs_ctx} > 0', 'column_id': 'ctr'}, 'color': '#00ff00', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{ctr_vs_ctx} < 0', 'column_id': 'ctr'}, 'color': '#ff0000', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{cpa_vs_ctx} < 0', 'column_id': 'cpa'}, 'color': '#00ff00', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{cpa_vs_ctx} > 0', 'column_id': 'cpa'}, 'color': '#ff0000', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{mnet_roas_vs_ctx} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00', 'fontWeight': 'bold'},
+                    {'if': {'filter_query': '{mnet_roas_vs_ctx} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000', 'fontWeight': 'bold'}
                 ],
                 page_size=5,
                 style_table={'overflowX': 'auto'},
                 style_header={'backgroundColor': '#444', 'color': 'white', 'fontWeight': 'bold'},
                 style_data={'backgroundColor': '#1a1a1a', 'color': 'white', 'fontSize': '11px'},
-                style_cell={'textAlign': 'left', 'padding': '8px'}
+                style_cell={'textAlign': 'left', 'padding': '8px'},
+                style_cell_conditional=[
+                    {'if': {'column_id': 'url'}, 'maxWidth': '400px', 'overflow': 'hidden', 'textOverflow': 'ellipsis'}
+                ]
             )
         ], style={'backgroundColor': '#1a1a1a', 'padding': '15px'})
     ], style={'marginTop': '10px', 'border': '2px solid #17a2b8'})
