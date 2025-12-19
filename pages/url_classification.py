@@ -75,7 +75,10 @@ COL_MAP = {
 df = df.rename(columns={c: COL_MAP[c] for c in df.columns if c in COL_MAP})
 
 for c in ['clicks','impressions','conversions','adv_cost','max_cost','adv_value','mnet_roas','adv_roas']:
-    df[c] = pd.to_numeric(df.get(c, 0), errors='coerce').fillna(0)
+    if c not in df.columns:
+        df[c] = 0
+    df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+
 
 # =========================================================
 # METRICS
@@ -1291,4 +1294,5 @@ def handle_contextuality_drilldown(selected_rows, close_clicks, advs, camp_types
 # =========================================================
 # RUN
 # =========================================================
+
 
