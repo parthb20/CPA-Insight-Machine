@@ -128,8 +128,8 @@ def aggregate_metrics(data, group_cols):
 # =========================================================
 # LAYOUT
 # =========================================================
-
 layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
+    dcc.Store(id='expanded_campaigns', data=[]),  # <-- ADD THIS LINE
     html.H2("Top Level Overview", style={'color': '#5dade2', 'textAlign': 'center', 'padding': '20px'}),
     
     # ADD DATE RANGE HERE (before other filters)
@@ -236,33 +236,62 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 # =========================================================
 # CALLBACKS
 # =========================================================
+# =========================================================
+# CALLBACKS
+# =========================================================
 @callback(
     [Output('ov_agg_stats', 'children'),
      Output('ov_campaign_table_container', 'children'),
-     Output('ov_campaign_multi_dd', 'options')],
+     Output('ov_campaign_multi_dd', 'options'),
+     Output('expanded_campaigns', 'data')],
     [Input('ov_adv_dd', 'value'),
      Input('ov_camp_type_dd', 'value'),
      Input('ov_date_range', 'start_date'),
-     Input('ov_date_range', 'end_date')]
+     Input('ov_date_range', 'end_date'),
+     Input('campaign_table', 'active_cell')],
+    [State('campaign_table', 'data'),
+     State('expanded_campaigns', 'data')]
 )
-def update_campaign_table(advertisers, campaign_types, start_date, end_date):
-    """Update campaign table with pagination and conditional formatting"""
+def update_campaign_table(advertisers, campaign_types, start_date, end_date, 
+                         active_cell, table_data, expanded_campaigns):
+    """Update campaign table with pagination and drilldown"""
+    
+    ctx = dash.callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    # Initialize expanded_campaigns if None
+    if expanded_campaigns is None:
+        expanded_campaigns = []
+    
+    # Handle expand/collapse toggle
+    if triggered_id == 'campaign_table' and active_cell and table_data:
+        if active_cell['column_id'] == 'expand':
+            clicked_row = table_data[active_cell['row']]
+            if clicked_row.get('row_type') == 'campaign':
+                campaign_name = clicked_row['campaign']
+                if campaign_name in expanded_campaigns:
+                    expanded_campaigns.remove(campaign_name)
+                else:
+                    expanded_campaigns = [campaign_name]  # Only allow one expanded at a time
+    
     # Filter data
     filtered_df = df.copy()
-    # Check if base data exists
+    
     if len(filtered_df) == 0:
         return (
             html.Div("⚠️ No data loaded from source", style={'color': '#ff0000', 'padding': '20px'}),
             html.Div("Please check data source connection", style={'color': '#aaa'}),
+            [],
             []
         )
     
-    # Date filtering with normalization
+    # Date filtering
     if start_date and end_date:
         start_dt = pd.to_datetime(start_date).normalize()
         end_dt = pd.to_datetime(end_date).normalize()
         filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
-        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & (filtered_df['Day_normalized'] <= end_dt)]
+        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & 
+                                  (filtered_df['Day_normalized'] <= end_dt)]
         filtered_df = filtered_df.drop('Day_normalized', axis=1)
     
     if advertisers:
@@ -274,10 +303,11 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date):
         return (
             html.Div("No data available", style={'color': '#ff0000'}),
             html.Div("No campaigns to display", style={'color': '#aaa'}),
+            [],
             []
         )
     
-    # Calculate overall stats (for comparison)
+    # Calculate overall stats
     total_impressions = filtered_df['impressions'].sum()
     total_clicks = filtered_df['clicks'].sum()
     total_conversions = filtered_df['conversions'].sum()
@@ -312,208 +342,61 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date):
     campaign_agg = aggregate_metrics(filtered_df, ['campaign'])
     campaign_agg = campaign_agg.round(2)
     campaign_agg = campaign_agg.sort_values('payout', ascending=False)
-
-# Add expand functionality columns
-    campaign_agg['expand'] = '▶'  # Add expand icon
-    campaign_agg['row_id'] = campaign_agg['campaign']  # Unique ID
-    campaign_agg['row_type'] = 'campaign'  # Mark as campaign row  # Mark as campaign row
     
-    # Create DataTable with conditional formatting
+    # Build table data with expanded rows
+    table_data_list = []
+    for _, campaign_row in campaign_agg.iterrows():
+        campaign_name = campaign_row['campaign']
+        is_expanded = campaign_name in expanded_campaigns
+        
+        # Add campaign row
+        campaign_data = {
+            'expand': '▼' if is_expanded else '▶',
+            'campaign': campaign_name,
+            'impressions': campaign_row['impressions'],
+            'clicks': campaign_row['clicks'],
+            'conversions': campaign_row['conversions'],
+            'ctr': campaign_row['ctr'],
+            'cvr': campaign_row['cvr'],
+            'cpa': campaign_row['cpa'],
+            'mnet_roas': campaign_row['mnet_roas'],
+            'adv_roas': campaign_row['adv_roas'],
+            'payout': campaign_row['payout'],
+            'row_type': 'campaign',
+            'row_id': campaign_name
+        }
+        table_data_list.append(campaign_data)
+        
+        # Add day rows if expanded
+        if is_expanded:
+            campaign_days = filtered_df[filtered_df['campaign'] == campaign_name].copy()
+            day_agg = aggregate_metrics(campaign_days, ['Day_str'])
+            day_agg['Day_sort'] = pd.to_datetime(day_agg['Day_str'], format='%d-%m-%Y')
+            day_agg = day_agg.sort_values('Day_sort', ascending=False)
+            day_agg = day_agg.round(2)
+            
+            for _, day_row in day_agg.iterrows():
+                day_data = {
+                    'expand': '',
+                    'campaign': f"    📅 {day_row['Day_str']}",
+                    'impressions': day_row['impressions'],
+                    'clicks': day_row['clicks'],
+                    'conversions': day_row['conversions'],
+                    'ctr': day_row['ctr'],
+                    'cvr': day_row['cvr'],
+                    'cpa': day_row['cpa'],
+                    'mnet_roas': day_row['mnet_roas'],
+                    'adv_roas': day_row['adv_roas'],
+                    'payout': day_row['payout'],
+                    'row_type': 'day',
+                    'row_id': f"{campaign_name}_{day_row['Day_str']}"
+                }
+                table_data_list.append(day_data)
+    
+    # Create DataTable
     table = dash_table.DataTable(
         id='campaign_table',
-        data=campaign_agg.to_dict('records'),
-        columns=[
-            {'name': '▶', 'id': 'expand', 'presentation': 'markdown'},  # Expand column
-            {'name': 'Campaign', 'id': 'campaign'},
-            {'name': 'Impressions', 'id': 'impressions', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
-            {'name': 'Clicks', 'id': 'clicks', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
-            {'name': 'Conversions', 'id': 'conversions', 'type': 'numeric', 'format': {'specifier': ',.2f'}},
-            {'name': 'CTR %', 'id': 'ctr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'CVR %', 'id': 'cvr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'CPA', 'id': 'cpa', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'Adv ROAS', 'id': 'adv_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'Payout', 'id': 'payout', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
-        ],
-        page_size=20,
-        page_action='native',
-        sort_action='native',
-        filter_action='native',
-        row_selectable='single',
-        selected_rows=[],
-        style_table={'overflowX': 'auto'},
-        style_header={
-            'backgroundColor': '#17a2b8',
-            'color': 'white',
-            'fontWeight': 'bold',
-            'textAlign': 'center'
-        },
-        style_data={
-            'backgroundColor': '#222',
-            'color': 'white'
-        },
-        style_data_conditional=[
-            {'if': {'row_index': 'odd'}, 'backgroundColor': '#2a2a2a'},
-            {'if': {'state': 'selected'}, 'backgroundColor': '#17a2b8', 'border': '1px solid white'},
-            {'if': {'filter_query': '{row_type} = "day"'}, 
-             'backgroundColor': '#1a1a1a', 'fontSize': '11px', 'fontStyle': 'italic'},
-            {'if': {'filter_query': '{row_type} = "day"', 'column_id': 'expand'}, 
-             'color': '#666'},  # Empty expand icon for day rows
-            
-            # CVR: green if > avg, red if < avg
-            {'if': {'filter_query': f'{{cvr}} > {agg_cvr}', 'column_id': 'cvr'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cvr}} < {agg_cvr}', 'column_id': 'cvr'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CTR: green if > avg, red if < avg
-            {'if': {'filter_query': f'{{ctr}} > {agg_ctr}', 'column_id': 'ctr'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{ctr}} < {agg_ctr}', 'column_id': 'ctr'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CPA: green if < avg (lower is better), red if > avg
-            {'if': {'filter_query': f'{{cpa}} < {agg_cpa}', 'column_id': 'cpa'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cpa}} > {agg_cpa}', 'column_id': 'cpa'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Mnet ROAS: green if > avg, red if < avg
-            {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{mnet_roas}} < {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Adv ROAS: green if > avg, red if < avg
-            {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas}', 'column_id': 'adv_roas'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{adv_roas}} < {agg_adv_roas}', 'column_id': 'adv_roas'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-        ],
-        style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '12px'}
-    )
-    
-    campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
-    
-    return stats_display, table, campaign_options
-
-@callback(
-    Output('ov_campaign_table_container', 'children', allow_duplicate=True),
-    [Input('campaign_table', 'active_cell')],
-    [State('campaign_table', 'data'),
-     State('ov_adv_dd', 'value'),
-     State('ov_camp_type_dd', 'value'),
-     State('ov_date_range', 'start_date'),
-     State('ov_date_range', 'end_date'),
-     State('ov_agg_stats', 'children')],  # To preserve aggregate stats
-    prevent_initial_call=True
-)
-def toggle_day_breakdown(active_cell, table_data, advertisers, campaign_types, start_date, end_date, agg_stats):
-    """Toggle day-wise rows when expand icon clicked"""
-    
-    if not active_cell or not table_data:
-        raise dash.exceptions.PreventUpdate
-    
-    # Only trigger on expand column clicks
-    if active_cell['column_id'] != 'expand':
-        raise dash.exceptions.PreventUpdate
-    
-    clicked_row_idx = active_cell['row']
-    clicked_row = table_data[clicked_row_idx]
-    
-    # Only expand campaign rows, not day rows
-    if clicked_row.get('row_type') != 'campaign':
-        raise dash.exceptions.PreventUpdate
-    
-    clicked_campaign = clicked_row['campaign']
-    
-    # Check if already expanded (icon is ▼)
-    is_expanded = clicked_row['expand'] == '▼'
-    
-    # Filter base data
-    filtered_df = df.copy()
-    
-    if start_date and end_date:
-        start_dt = pd.to_datetime(start_date).normalize()
-        end_dt = pd.to_datetime(end_date).normalize()
-        filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
-        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & (filtered_df['Day_normalized'] <= end_dt)]
-        filtered_df = filtered_df.drop('Day_normalized', axis=1)
-    
-    if advertisers:
-        filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
-    if campaign_types:
-        filtered_df = filtered_df[filtered_df['campaign_type'].isin(campaign_types)]
-    
-    # Recalculate aggregates for conditional formatting
-    total_impressions = filtered_df['impressions'].sum()
-    total_clicks = filtered_df['clicks'].sum()
-    total_conversions = filtered_df['conversions'].sum()
-    total_adv_cost = filtered_df['adv_cost'].sum()
-    total_max_cost = filtered_df['max_cost'].sum()
-    total_payout = filtered_df['payout'].sum()
-    
-    agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
-    agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
-    agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
-    agg_mnet_roas = (total_payout / total_max_cost) if total_max_cost > 0 else 0
-    agg_adv_roas = (total_payout / total_adv_cost) if total_adv_cost > 0 else 0
-    
-    # Build new table data
-    new_data = []
-    
-    for i, row in enumerate(table_data):
-        # Skip existing day rows - we'll rebuild them
-        if row.get('row_type') == 'day':
-            continue
-        
-        # Reset other campaign rows to collapsed
-        if row.get('row_type') == 'campaign' and i != clicked_row_idx:
-            row['expand'] = '▶'
-        
-        # Handle clicked row
-        if i == clicked_row_idx:
-            if is_expanded:
-                # Collapse: just show campaign row
-                row['expand'] = '▶'
-                new_data.append(row)
-            else:
-                # Expand: show campaign + day rows
-                row['expand'] = '▼'
-                new_data.append(row)
-                
-                # Get day-wise data
-                campaign_days = filtered_df[filtered_df['campaign'] == clicked_campaign].copy()
-                day_agg = aggregate_metrics(campaign_days, ['Day_str'])
-                day_agg['Day_sort'] = pd.to_datetime(day_agg['Day_str'], format='%d-%m-%Y')
-                day_agg = day_agg.sort_values('Day_sort', ascending=False)
-                day_agg = day_agg.round(2)
-                
-                # Add day rows
-                for _, day_row in day_agg.iterrows():
-                    day_data = {
-                        'expand': '',
-                        'campaign': f"    📅 {day_row['Day_str']}",  # Indent
-                        'impressions': day_row['impressions'],
-                        'clicks': day_row['clicks'],
-                        'conversions': day_row['conversions'],
-                        'ctr': day_row['ctr'],
-                        'cvr': day_row['cvr'],
-                        'cpa': day_row['cpa'],
-                        'mnet_roas': day_row['mnet_roas'],
-                        'adv_roas': day_row['adv_roas'],
-                        'payout': day_row['payout'],
-                        'row_type': 'day',
-                        'row_id': f"{clicked_campaign}_{day_row['Day_str']}"
-                    }
-                    new_data.append(day_data)
-        else:
-            new_data.append(row)
-    
-    # Recreate table with updated data
-    table = dash_table.DataTable(
-        id='campaign_table',
-        data=new_data,
+        data=table_data_list,
         columns=[
             {'name': '▶', 'id': 'expand'},
             {'name': 'Campaign', 'id': 'campaign'},
@@ -543,37 +426,30 @@ def toggle_day_breakdown(active_cell, table_data, advertisers, campaign_types, s
             'color': 'white'
         },
         style_data_conditional=[
-            {'if': {'row_index': 'odd', 'filter_query': '{row_type} = "campaign"'}, 'backgroundColor': '#2a2a2a'},
+            {'if': {'row_index': 'odd', 'filter_query': '{row_type} = "campaign"'}, 
+             'backgroundColor': '#2a2a2a'},
             
             # Day rows styling
             {'if': {'filter_query': '{row_type} = "day"'}, 
              'backgroundColor': '#1a1a1a', 'fontSize': '10px', 'color': '#bbb'},
             
-            # CVR colors
+            # Conditional formatting for campaign rows
             {'if': {'filter_query': f'{{cvr}} > {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{cvr}} < {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
              'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CTR colors
             {'if': {'filter_query': f'{{ctr}} > {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{ctr}} < {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
              'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CPA colors (lower is better)
             {'if': {'filter_query': f'{{cpa}} < {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{cpa}} > {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
              'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Mnet ROAS colors
             {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{mnet_roas}} < {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
              'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Adv ROAS colors
             {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{adv_roas}} < {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
@@ -581,11 +457,13 @@ def toggle_day_breakdown(active_cell, table_data, advertisers, campaign_types, s
         ],
         style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '12px'},
         style_cell_conditional=[
-            {'if': {'column_id': 'expand'}, 'width': '40px', 'textAlign': 'center'}
+            {'if': {'column_id': 'expand'}, 'width': '40px', 'textAlign': 'center', 'cursor': 'pointer'}
         ]
     )
     
-    return table
+    campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
+    
+    return stats_display, table, campaign_options, expanded_campaigns
 @callback(
     Output('ov_daily_trends', 'figure'),
     [Input('ov_adv_dd', 'value'),
@@ -693,6 +571,7 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
 
 
