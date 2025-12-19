@@ -18,7 +18,7 @@ dash.register_page(__name__, path='/overview', name='Overview')
 import io
 import requests
 
-OVERVIEW_FILE_ID = "13sSmNN7f2e1FkCji6TVCA9BaGRDfneQO"
+OVERVIEW_FILE_ID = "1IniF9u4atIRo69vjZAQiB6iXgtF50hJ8"
 OVERVIEW_URL = f"https://drive.google.com/uc?export=download&id={OVERVIEW_FILE_ID}"
 
 try:
@@ -500,3 +500,4 @@ clientside_callback(
     Input({'type': 'expand-btn', 'index': dash.dependencies.ALL}, 'n_clicks'),
     prevent_initial_call=True
 )
+
