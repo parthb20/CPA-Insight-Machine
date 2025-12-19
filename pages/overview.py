@@ -177,10 +177,48 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
            style={'color': '#aaa', 'fontSize': '12px'}),
     
     dcc.Loading(
-        html.Div(id='ov_campaign_table_container'),
-        type="circle",
-        color="#5dade2"
-    ),
+    html.Div([
+        dash_table.DataTable(
+            id='campaign_table',
+            columns=[
+                {'name': '▶', 'id': 'expand'},
+                {'name': 'Campaign', 'id': 'campaign'},
+                {'name': 'Impressions', 'id': 'impressions', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
+                {'name': 'Clicks', 'id': 'clicks', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
+                {'name': 'Conversions', 'id': 'conversions', 'type': 'numeric', 'format': {'specifier': ',.2f'}},
+                {'name': 'CTR %', 'id': 'ctr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
+                {'name': 'CVR %', 'id': 'cvr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
+                {'name': 'CPA', 'id': 'cpa', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
+                {'name': 'Mnet ROAS', 'id': 'mnet_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
+                {'name': 'Adv ROAS', 'id': 'adv_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
+                {'name': 'Payout', 'id': 'payout', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
+            ],
+            data=[],
+            page_size=20,
+            page_action='native',
+            sort_action='native',
+            filter_action='native',
+            style_table={'overflowX': 'auto'},
+            style_header={
+                'backgroundColor': '#17a2b8',
+                'color': 'white',
+                'fontWeight': 'bold',
+                'textAlign': 'center'
+            },
+            style_data={
+                'backgroundColor': '#222',
+                'color': 'white'
+            },
+            style_data_conditional=[],  # Will be updated by callback
+            style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '12px'},
+            style_cell_conditional=[
+                {'if': {'column_id': 'expand'}, 'width': '40px', 'textAlign': 'center', 'cursor': 'pointer'}
+            ]
+        )
+    ]),
+    type="circle",
+    color="#5dade2"
+),
     
     
     html.Hr(style={'borderColor': '#444'}),
@@ -241,14 +279,15 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 # =========================================================
 @callback(
     [Output('ov_agg_stats', 'children'),
-     Output('ov_campaign_table_container', 'children'),
+     Output('campaign_table', 'data'),  # Changed from container to data
+     Output('campaign_table', 'style_data_conditional'),  # Add conditional styling
      Output('ov_campaign_multi_dd', 'options'),
      Output('expanded_campaigns', 'data')],
     [Input('ov_adv_dd', 'value'),
      Input('ov_camp_type_dd', 'value'),
      Input('ov_date_range', 'start_date'),
      Input('ov_date_range', 'end_date'),
-     Input('expanded_campaigns', 'data')],  # <-- MOVED HERE as Input
+     Input('expanded_campaigns', 'data')],
     prevent_initial_call=False
 )
 def update_campaign_table(advertisers, campaign_types, start_date, end_date, expanded_campaigns):
@@ -264,7 +303,8 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
     if len(filtered_df) == 0:
         return (
             html.Div("⚠️ No data loaded from source", style={'color': '#ff0000', 'padding': '20px'}),
-            html.Div("Please check data source connection", style={'color': '#aaa'}),
+            [],
+            [],
             [],
             []
         )
@@ -286,7 +326,8 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
     if len(filtered_df) == 0:
         return (
             html.Div("No data available", style={'color': '#ff0000'}),
-            html.Div("No campaigns to display", style={'color': '#aaa'}),
+            [],
+            [],
             [],
             []
         )
@@ -377,78 +418,41 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
                 }
                 table_data_list.append(day_data)
     
-    # Create DataTable
-    table = dash_table.DataTable(
-        id='campaign_table',
-        data=table_data_list,
-        columns=[
-            {'name': '▶', 'id': 'expand'},
-            {'name': 'Campaign', 'id': 'campaign'},
-            {'name': 'Impressions', 'id': 'impressions', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
-            {'name': 'Clicks', 'id': 'clicks', 'type': 'numeric', 'format': {'specifier': ',.0f'}},
-            {'name': 'Conversions', 'id': 'conversions', 'type': 'numeric', 'format': {'specifier': ',.2f'}},
-            {'name': 'CTR %', 'id': 'ctr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'CVR %', 'id': 'cvr', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'CPA', 'id': 'cpa', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'Adv ROAS', 'id': 'adv_roas', 'type': 'numeric', 'format': {'specifier': '.2f'}},
-            {'name': 'Payout', 'id': 'payout', 'type': 'numeric', 'format': {'specifier': '$.2f'}},
-        ],
-        page_size=20,
-        page_action='native',
-        sort_action='native',
-        filter_action='native',
-        style_table={'overflowX': 'auto'},
-        style_header={
-            'backgroundColor': '#17a2b8',
-            'color': 'white',
-            'fontWeight': 'bold',
-            'textAlign': 'center'
-        },
-        style_data={
-            'backgroundColor': '#222',
-            'color': 'white'
-        },
-        style_data_conditional=[
-            {'if': {'row_index': 'odd', 'filter_query': '{row_type} = "campaign"'}, 
-             'backgroundColor': '#2a2a2a'},
-            
-            # Day rows styling
-            {'if': {'filter_query': '{row_type} = "day"'}, 
-             'backgroundColor': '#1a1a1a', 'fontSize': '10px', 'color': '#bbb'},
-            
-            # Conditional formatting for campaign rows
-            {'if': {'filter_query': f'{{cvr}} > {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cvr}} < {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{ctr}} > {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{ctr}} < {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cpa}} < {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cpa}} > {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{mnet_roas}} < {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{adv_roas}} < {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-        ],
-        style_cell={'textAlign': 'left', 'padding': '10px', 'fontSize': '12px'},
-        style_cell_conditional=[
-            {'if': {'column_id': 'expand'}, 'width': '40px', 'textAlign': 'center', 'cursor': 'pointer'}
-        ]
-    )
+    # Conditional styling
+    style_data_conditional = [
+        {'if': {'row_index': 'odd', 'filter_query': '{row_type} = "campaign"'}, 
+         'backgroundColor': '#2a2a2a'},
+        
+        # Day rows styling
+        {'if': {'filter_query': '{row_type} = "day"'}, 
+         'backgroundColor': '#1a1a1a', 'fontSize': '10px', 'color': '#bbb'},
+        
+        # Conditional formatting for campaign rows
+        {'if': {'filter_query': f'{{cvr}} > {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
+         'color': '#00ff00', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{cvr}} < {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
+         'color': '#ff0000', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{ctr}} > {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
+         'color': '#00ff00', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{ctr}} < {agg_ctr} && {{row_type}} = "campaign"', 'column_id': 'ctr'}, 
+         'color': '#ff0000', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{cpa}} < {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
+         'color': '#00ff00', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{cpa}} > {agg_cpa} && {{row_type}} = "campaign"', 'column_id': 'cpa'}, 
+         'color': '#ff0000', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
+         'color': '#00ff00', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{mnet_roas}} < {agg_mnet_roas} && {{row_type}} = "campaign"', 'column_id': 'mnet_roas'}, 
+         'color': '#ff0000', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
+         'color': '#00ff00', 'fontWeight': 'bold'},
+        {'if': {'filter_query': f'{{adv_roas}} < {agg_adv_roas} && {{row_type}} = "campaign"', 'column_id': 'adv_roas'}, 
+         'color': '#ff0000', 'fontWeight': 'bold'},
+    ]
     
     campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
     
-    return stats_display, table, campaign_options, expanded_campaigns
-
+    return stats_display, table_data_list, style_data_conditional, campaign_options, expanded_campaigns
 
 # Add second callback for handling row clicks
 @callback(
@@ -590,6 +594,7 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
     )
     
     return fig
+
 
 
 
