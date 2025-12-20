@@ -528,13 +528,16 @@ def handle_row_click(active_cell, table_data, expanded_campaigns):
     if expanded_campaigns is None:
         expanded_campaigns = []
     
-    if campaign_name in expanded_campaigns:
-        expanded_campaigns.remove(campaign_name)
-    else:
-        expanded_campaigns = [campaign_name]
+    # Create a new list to force update
+    new_expanded = expanded_campaigns.copy()
     
-    return expanded_campaigns
-
+    if campaign_name in new_expanded:
+        new_expanded.remove(campaign_name)
+    else:
+        new_expanded.append(campaign_name)  # Changed from = [campaign_name]
+    
+    return new_expanded
+    
 @callback(
     Output('ov_daily_trends', 'figure'),
     [Input('filtered_campaign_data', 'data'),
@@ -648,6 +651,7 @@ def update_daily_trends(filtered_data, selected_metrics, selected_campaigns):
     )
     
     return fig
+
 
 
 
