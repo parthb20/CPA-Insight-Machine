@@ -296,14 +296,18 @@ def filter_and_aggregate(advertisers, campaign_types, start_date, end_date):
     if len(filtered_df) == 0:
         return {'campaign_agg': [], 'stats': {}, 'filtered_df': []}
     
-    # Date filtering
-    if start_date and end_date:
-        start_dt = pd.to_datetime(start_date).normalize()
-        end_dt = pd.to_datetime(end_date).normalize()
-        filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
-        filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & 
-                                  (filtered_df['Day_normalized'] <= end_dt)]
-        filtered_df = filtered_df.drop('Day_normalized', axis=1)
+    # Date filtering - handle None values with defaults
+    if start_date is None:
+        start_date = default_start
+    if end_date is None:
+        end_date = default_end
+    
+    start_dt = pd.to_datetime(start_date).normalize()
+    end_dt = pd.to_datetime(end_date).normalize()
+    filtered_df['Day_normalized'] = filtered_df['Day'].dt.normalize()
+    filtered_df = filtered_df[(filtered_df['Day_normalized'] >= start_dt) & 
+                              (filtered_df['Day_normalized'] <= end_dt)]
+    filtered_df = filtered_df.drop('Day_normalized', axis=1)
     
     if advertisers:
         filtered_df = filtered_df[filtered_df['advertiser'].isin(advertisers)]
@@ -353,7 +357,6 @@ def filter_and_aggregate(advertisers, campaign_types, start_date, end_date):
         'stats': stats,
         'filtered_df': filtered_data
     }
-
 
 @callback(
     [Output('ov_agg_stats', 'children'),
@@ -645,6 +648,7 @@ def update_daily_trends(filtered_data, selected_metrics, selected_campaigns):
     )
     
     return fig
+
 
 
 
