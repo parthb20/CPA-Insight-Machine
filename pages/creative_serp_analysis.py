@@ -61,7 +61,7 @@ import io
 import requests
 
 # File 1: Creative & SERP Data
-CREATIVE_SERP_FILE_ID = "1BQO3sBMssqH9nd2bXt8OMF1SGv-S99pM"
+CREATIVE_SERP_FILE_ID = "1mGUAmrQJAxxbiiIAD39LKIKsl1IMWANz"
 CREATIVE_SERP_URL = f"https://drive.google.com/uc?export=download&id={CREATIVE_SERP_FILE_ID}"
 
 # File 2: Ad Title Data
@@ -1287,6 +1287,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
