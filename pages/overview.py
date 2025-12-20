@@ -129,22 +129,25 @@ def aggregate_metrics(data, group_cols):
 # LAYOUT
 # =========================================================
 layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
-    dcc.Store(id='expanded_campaigns', data=[]),  # <-- ADD THIS LINE
+    dcc.Store(id='expanded_campaigns', data=[]),
+    dcc.Store(id='filtered_campaign_data', data={}),  # ADD THIS - stores pre-filtered data  # <-- ADD THIS LINE
     html.H2("Top Level Overview", style={'color': '#5dade2', 'textAlign': 'center', 'padding': '20px'}),
     
     # ADD DATE RANGE HERE (before other filters)
+    # DATE RANGE FILTER - COMPACT
     dbc.Row([
-        dbc.Col([html.Label("Date Range:", style={'color': 'white', 'fontWeight': 'bold'}),
-                 dcc.DatePickerRange(
-                     id='ov_date_range',
-                     start_date=default_start,
-                     end_date=default_end,
-                     min_date_allowed=min_date,
-                     max_date_allowed=max_date,
-                     display_format='DD-MM-YYYY',
-                     style={'marginBottom': '10px'}
-                 )
-                ], width=6)
+        dbc.Col([
+            html.Label("Date Range:", style={'color': 'white', 'fontWeight': 'bold', 'marginBottom': '5px'}),
+            dcc.DatePickerRange(
+                id='ov_date_range',
+                start_date=default_start,
+                end_date=default_end,
+                min_date_allowed=min_date,
+                max_date_allowed=max_date,
+                display_format='DD-MM-YYYY',
+                style={'width': '300px'}
+            )
+        ], width=4)
     ], style={'marginBottom': '20px'}),    
     # Filters
     dbc.Row([
@@ -278,36 +281,20 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 # CALLBACKS
 # =========================================================
 @callback(
-    [Output('ov_agg_stats', 'children'),
-     Output('campaign_table', 'data'),  # Changed from container to data
-     Output('campaign_table', 'style_data_conditional'),  # Add conditional styling
-     Output('ov_campaign_multi_dd', 'options'),
-     Output('expanded_campaigns', 'data')],
+    Output('filtered_campaign_data', 'data'),
     [Input('ov_adv_dd', 'value'),
      Input('ov_camp_type_dd', 'value'),
      Input('ov_date_range', 'start_date'),
-     Input('ov_date_range', 'end_date'),
-     Input('expanded_campaigns', 'data')],
+     Input('ov_date_range', 'end_date')],
     prevent_initial_call=False
 )
-def update_campaign_table(advertisers, campaign_types, start_date, end_date, expanded_campaigns):
-    """Update campaign table - initial load and filter changes"""
+def filter_and_aggregate(advertisers, campaign_types, start_date, end_date):
+    """Filter data and aggregate by campaign - runs only when filters change"""
     
-    # Initialize expanded_campaigns if None
-    if expanded_campaigns is None:
-        expanded_campaigns = []
-    
-    # Filter data
     filtered_df = df.copy()
     
     if len(filtered_df) == 0:
-        return (
-            html.Div("⚠️ No data loaded from source", style={'color': '#ff0000', 'padding': '20px'}),
-            [],
-            [],
-            [],
-            []
-        )
+        return {'campaign_agg': [], 'stats': {}, 'filtered_df': []}
     
     # Date filtering
     if start_date and end_date:
@@ -324,52 +311,98 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
         filtered_df = filtered_df[filtered_df['campaign_type'].isin(campaign_types)]
     
     if len(filtered_df) == 0:
-        return (
-            html.Div("No data available", style={'color': '#ff0000'}),
-            [],
-            [],
-            [],
-            []
-        )
+        return {'campaign_agg': [], 'stats': {}, 'filtered_df': []}
     
     # Calculate overall stats
-    total_impressions = filtered_df['impressions'].sum()
-    total_clicks = filtered_df['clicks'].sum()
-    total_conversions = filtered_df['conversions'].sum()
-    total_adv_cost = filtered_df['adv_cost'].sum()
-    total_max_cost = filtered_df['max_cost'].sum()
-    total_payout = filtered_df['payout'].sum()
+    stats = {
+        'total_impressions': float(filtered_df['impressions'].sum()),
+        'total_clicks': float(filtered_df['clicks'].sum()),
+        'total_conversions': float(filtered_df['conversions'].sum()),
+        'total_adv_cost': float(filtered_df['adv_cost'].sum()),
+        'total_max_cost': float(filtered_df['max_cost'].sum()),
+        'total_payout': float(filtered_df['payout'].sum()),
+        'agg_ctr': 0,
+        'agg_cvr': 0,
+        'agg_cpa': 0,
+        'agg_mnet_roas': 0,
+        'agg_adv_roas': 0
+    }
     
-    agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
-    agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
-    agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
-    agg_mnet_roas = (total_payout / total_max_cost) if total_max_cost > 0 else 0
-    agg_adv_roas = (total_payout / total_adv_cost) if total_adv_cost > 0 else 0
-    
-    # Stats display
-    stats_display = dbc.Card([
-        dbc.CardBody([
-            html.H4("Overall Aggregated Stats", style={'color': '#17a2b8', 'marginBottom': '15px'}),
-            dbc.Row([
-                dbc.Col([html.Strong("Impressions: "), html.Span(f"{int(total_impressions):,}", style={'color': '#5dade2'})], width=2),
-                dbc.Col([html.Strong("Clicks: "), html.Span(f"{int(total_clicks):,}", style={'color': '#5dade2'})], width=2),
-                dbc.Col([html.Strong("Conversions: "), html.Span(f"{total_conversions:.2f}", style={'color': '#5dade2'})], width=2),
-                dbc.Col([html.Strong("CTR: "), html.Span(f"{agg_ctr:.2f}%", style={'color': '#00ff00'})], width=1),
-                dbc.Col([html.Strong("CVR: "), html.Span(f"{agg_cvr:.2f}%", style={'color': '#00ff00'})], width=1),
-                dbc.Col([html.Strong("CPA: "), html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00'})], width=2),
-                dbc.Col([html.Strong("Mnet ROAS: "), html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00'})], width=1),
-                dbc.Col([html.Strong("Adv ROAS: "), html.Span(f"{agg_adv_roas:.2f}", style={'color': '#00ff00'})], width=1)
-            ])
-        ])
-    ], style={'backgroundColor': '#222', 'border': '1px solid #444', 'color': '#aaa'})
+    if stats['total_impressions'] > 0:
+        stats['agg_ctr'] = (stats['total_clicks'] / stats['total_impressions'] * 100)
+    if stats['total_clicks'] > 0:
+        stats['agg_cvr'] = (stats['total_conversions'] / stats['total_clicks'] * 100)
+    if stats['total_conversions'] > 0:
+        stats['agg_cpa'] = (stats['total_adv_cost'] / stats['total_conversions'])
+    if stats['total_max_cost'] > 0:
+        stats['agg_mnet_roas'] = (stats['total_payout'] / stats['total_max_cost'])
+    if stats['total_adv_cost'] > 0:
+        stats['agg_adv_roas'] = (stats['total_payout'] / stats['total_adv_cost'])
     
     # Aggregate by campaign
     campaign_agg = aggregate_metrics(filtered_df, ['campaign'])
     campaign_agg = campaign_agg.round(2)
     campaign_agg = campaign_agg.sort_values('payout', ascending=False)
     
+    # Store filtered_df for day-wise breakdown
+    filtered_data = filtered_df[['campaign', 'Day_str', 'impressions', 'clicks', 'conversions', 
+                                  'ctr', 'cvr', 'cpa', 'mnet_roas', 'adv_roas', 'payout']].to_dict('records')
+    
+    return {
+        'campaign_agg': campaign_agg.to_dict('records'),
+        'stats': stats,
+        'filtered_df': filtered_data
+    }
+
+
+@callback(
+    [Output('ov_agg_stats', 'children'),
+     Output('campaign_table', 'data'),
+     Output('campaign_table', 'style_data_conditional'),
+     Output('ov_campaign_multi_dd', 'options')],
+    [Input('filtered_campaign_data', 'data'),
+     Input('expanded_campaigns', 'data')],
+    prevent_initial_call=False
+)
+def update_table_display(filtered_data, expanded_campaigns):
+    """Update table display - fast rebuild based on pre-filtered data"""
+    
+    if not filtered_data or not filtered_data.get('campaign_agg'):
+        return (
+            html.Div("No data available", style={'color': '#ff0000'}),
+            [],
+            [],
+            []
+        )
+    
+    if expanded_campaigns is None:
+        expanded_campaigns = []
+    
+    campaign_agg = pd.DataFrame(filtered_data['campaign_agg'])
+    stats = filtered_data['stats']
+    filtered_df_records = filtered_data['filtered_df']
+    
+    # Stats display
+    stats_display = dbc.Card([
+        dbc.CardBody([
+            html.H4("Overall Aggregated Stats", style={'color': '#17a2b8', 'marginBottom': '15px'}),
+            dbc.Row([
+                dbc.Col([html.Strong("Impressions: "), html.Span(f"{int(stats['total_impressions']):,}", style={'color': '#5dade2'})], width=2),
+                dbc.Col([html.Strong("Clicks: "), html.Span(f"{int(stats['total_clicks']):,}", style={'color': '#5dade2'})], width=2),
+                dbc.Col([html.Strong("Conversions: "), html.Span(f"{stats['total_conversions']:.2f}", style={'color': '#5dade2'})], width=2),
+                dbc.Col([html.Strong("CTR: "), html.Span(f"{stats['agg_ctr']:.2f}%", style={'color': '#00ff00'})], width=1),
+                dbc.Col([html.Strong("CVR: "), html.Span(f"{stats['agg_cvr']:.2f}%", style={'color': '#00ff00'})], width=1),
+                dbc.Col([html.Strong("CPA: "), html.Span(f"${stats['agg_cpa']:.2f}", style={'color': '#ffcc00'})], width=2),
+                dbc.Col([html.Strong("Mnet ROAS: "), html.Span(f"{stats['agg_mnet_roas']:.2f}", style={'color': '#00ff00'})], width=1),
+                dbc.Col([html.Strong("Adv ROAS: "), html.Span(f"{stats['agg_adv_roas']:.2f}", style={'color': '#00ff00'})], width=1)
+            ])
+        ])
+    ], style={'backgroundColor': '#222', 'border': '1px solid #444', 'color': '#aaa'})
+    
     # Build table data with expanded rows
     table_data_list = []
+    filtered_df = pd.DataFrame(filtered_df_records)
+    
     for _, campaign_row in campaign_agg.iterrows():
         campaign_name = campaign_row['campaign']
         is_expanded = campaign_name in expanded_campaigns
@@ -393,9 +426,20 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
         table_data_list.append(campaign_data)
         
         # Add day rows if expanded
-        if is_expanded:
+        if is_expanded and len(filtered_df) > 0:
             campaign_days = filtered_df[filtered_df['campaign'] == campaign_name].copy()
-            day_agg = aggregate_metrics(campaign_days, ['Day_str'])
+            day_agg = campaign_days.groupby('Day_str').agg({
+                'impressions': 'sum',
+                'clicks': 'sum',
+                'conversions': 'sum',
+                'ctr': 'mean',
+                'cvr': 'mean',
+                'cpa': 'mean',
+                'mnet_roas': 'mean',
+                'adv_roas': 'mean',
+                'payout': 'sum'
+            }).reset_index()
+            
             day_agg['Day_sort'] = pd.to_datetime(day_agg['Day_str'], format='%d-%m-%Y')
             day_agg = day_agg.sort_values('Day_sort', ascending=False)
             day_agg = day_agg.round(2)
@@ -419,15 +463,17 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
                 table_data_list.append(day_data)
     
     # Conditional styling
+    agg_ctr = stats['agg_ctr']
+    agg_cvr = stats['agg_cvr']
+    agg_cpa = stats['agg_cpa']
+    agg_mnet_roas = stats['agg_mnet_roas']
+    agg_adv_roas = stats['agg_adv_roas']
+    
     style_data_conditional = [
         {'if': {'row_index': 'odd', 'filter_query': '{row_type} = "campaign"'}, 
          'backgroundColor': '#2a2a2a'},
-        
-        # Day rows styling
         {'if': {'filter_query': '{row_type} = "day"'}, 
          'backgroundColor': '#1a1a1a', 'fontSize': '10px', 'color': '#bbb'},
-        
-        # Conditional formatting for campaign rows
         {'if': {'filter_query': f'{{cvr}} > {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
          'color': '#00ff00', 'fontWeight': 'bold'},
         {'if': {'filter_query': f'{{cvr}} < {agg_cvr} && {{row_type}} = "campaign"', 'column_id': 'cvr'}, 
@@ -450,10 +496,9 @@ def update_campaign_table(advertisers, campaign_types, start_date, end_date, exp
          'color': '#ff0000', 'fontWeight': 'bold'},
     ]
     
-    campaign_options = [{'label': c, 'value': c} for c in sorted(filtered_df['campaign'].unique())]
+    campaign_options = [{'label': c, 'value': c} for c in sorted(campaign_agg['campaign'].unique())]
     
-    return stats_display, table_data_list, style_data_conditional, campaign_options, expanded_campaigns
-
+    return stats_display, table_data_list, style_data_conditional, campaign_options
 # Add second callback for handling row clicks
 @callback(
     Output('expanded_campaigns', 'data', allow_duplicate=True),
@@ -489,35 +534,29 @@ def handle_row_click(active_cell, table_data, expanded_campaigns):
 
 @callback(
     Output('ov_daily_trends', 'figure'),
-    [Input('ov_adv_dd', 'value'),
-     Input('ov_camp_type_dd', 'value'),
+    [Input('filtered_campaign_data', 'data'),
      Input('ov_metrics_checklist', 'value'),
-     Input('ov_campaign_multi_dd', 'value'),
-     Input('ov_date_range', 'start_date'),  # ADD THIS
-     Input('ov_date_range', 'end_date')]
+     Input('ov_campaign_multi_dd', 'value')]
 )
-def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_campaigns, start_date, end_date):
+def update_daily_trends(filtered_data, selected_metrics, selected_campaigns):
     """Update daily trends chart"""
-    # Filter data
-    trend_df = df.copy()
     
-    # Date filtering
-    # Date filtering with normalization
-    # Date filtering with normalization
-    if start_date and end_date:
-        start_dt = pd.to_datetime(start_date).normalize()
-        end_dt = pd.to_datetime(end_date).normalize()
-        trend_df['Day_normalized'] = trend_df['Day'].dt.normalize()
-        trend_df = trend_df[(trend_df['Day_normalized'] >= start_dt) & (trend_df['Day_normalized'] <= end_dt)]
-        trend_df = trend_df.drop('Day_normalized', axis=1)
+    if not filtered_data or not filtered_data.get('filtered_df'):
+        fig = go.Figure()
+        fig.update_layout(
+            title="No data available",
+            plot_bgcolor='#111',
+            paper_bgcolor='#111',
+            font=dict(color='white')
+        )
+        return fig
     
-    if advertisers:
-        trend_df = trend_df[trend_df['advertiser'].isin(advertisers)]
-    if campaign_types:
-        trend_df = trend_df[trend_df['campaign_type'].isin(campaign_types)]
+    # Convert back to DataFrame
+    trend_df = pd.DataFrame(filtered_data['filtered_df'])
+    
+    # Filter by selected campaigns if any
     if selected_campaigns:
         trend_df = trend_df[trend_df['campaign'].isin(selected_campaigns)]
-    
     if len(trend_df) == 0:
         fig = go.Figure()
         fig.update_layout(
@@ -528,7 +567,19 @@ def update_daily_trends(advertisers, campaign_types, selected_metrics, selected_
         )
         return fig
     
-    daily_agg = aggregate_metrics(trend_df, ['Day'])
+    # Aggregate by day
+    daily_agg = trend_df.groupby('Day_str').agg({
+        'impressions': 'sum',
+        'clicks': 'sum',
+        'conversions': 'sum',
+        'ctr': 'mean',
+        'cvr': 'mean',
+        'cpa': 'mean',
+        'mnet_roas': 'mean',
+        'adv_roas': 'mean'
+    }).reset_index()
+    
+    daily_agg['Day'] = pd.to_datetime(daily_agg['Day_str'], format='%d-%m-%Y')
     daily_agg = daily_agg.sort_values('Day')
     
     fig = go.Figure()
