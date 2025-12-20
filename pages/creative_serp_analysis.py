@@ -733,7 +733,7 @@ def update_cs_attributes(advs, camp_types, camps):
         agg_data['adv_roas'] = np.where(agg_data['adv_cost']>0, agg_data['actual_adv_payout']/agg_data['adv_cost'], 0)
         
         # Add expand/collapse indicator column
-        agg_data['▼'] = '▼'
+        agg_data[attr] = '▼ ' + agg_data[attr].astype(str)
         
         # Round numbers
         agg_data = agg_data.round(2)
@@ -766,8 +766,9 @@ def update_cs_attributes(advs, camp_types, camps):
             {'if': {'filter_query': f'{{adv_roas}} <= {overall_avg_adv_roas:.2f}', 'column_id': 'adv_roas'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
             # Arrow column style
-            {'if': {'column_id': '▼'}, 
-             'backgroundColor': '#17a2b8', 'color': 'white', 'fontWeight': 'bold', 'textAlign': 'center', 'cursor': 'pointer'}
+            # Style the attribute column to show it's clickable
+            {'if': {'column_id': attr}, 
+             'backgroundColor': '#17a2b8', 'color': 'white', 'fontWeight': 'bold', 'cursor': 'pointer'}
         ]
         
         # Add color highlighting for color columns
@@ -786,8 +787,7 @@ def update_cs_attributes(advs, camp_types, camps):
         
         # Define columns
         columns = [
-            {'name': '▼', 'id': '▼'},
-            {'name': attr_display_name, 'id': attr},
+            {'name': attr_display_name, 'id': attr},  # Arrow is now part of this column
             {'name': 'Impressions', 'id': 'impressions'},
             {'name': 'Clicks', 'id': 'clicks'},
             {'name': 'CTR %', 'id': 'ctr'},
@@ -1287,6 +1287,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
