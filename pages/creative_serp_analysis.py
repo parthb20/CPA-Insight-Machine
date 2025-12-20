@@ -732,46 +732,47 @@ def update_cs_attributes(advs, camp_types, camps):
         agg_data['mnet_roas'] = np.where(agg_data['max_cost']>0, agg_data['actual_adv_payout']/agg_data['max_cost'], 0)
         agg_data['adv_roas'] = np.where(agg_data['adv_cost']>0, agg_data['actual_adv_payout']/agg_data['adv_cost'], 0)
         
-        # Add expand/collapse indicator column
-        agg_data[attr] = '▼ ' + agg_data[attr].astype(str)
-        
         # Round numbers
         agg_data = agg_data.round(2)
         
         # Create conditional styling for metrics
         style_conditional = [
-            # CVR
+            # CVR - green if ABOVE average, red if BELOW
             {'if': {'filter_query': f'{{cvr}} > {overall_avg_cvr:.2f}', 'column_id': 'cvr'}, 
              'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{cvr}} <= {overall_avg_cvr:.2f}', 'column_id': 'cvr'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # CTR
+            
+            # CTR - green if ABOVE average, red if BELOW
             {'if': {'filter_query': f'{{ctr}} > {overall_avg_ctr:.2f}', 'column_id': 'ctr'}, 
              'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{ctr}} <= {overall_avg_ctr:.2f}', 'column_id': 'ctr'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # CPA (lower is better)
+            
+            # CPA - green if BELOW average (lower is better), red if ABOVE
             {'if': {'filter_query': f'{{cpa}} < {overall_avg_cpa:.2f}', 'column_id': 'cpa'}, 
              'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{cpa}} >= {overall_avg_cpa:.2f}', 'column_id': 'cpa'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Mnet ROAS
+            
+            # Mnet ROAS - green if ABOVE average, red if BELOW
             {'if': {'filter_query': f'{{mnet_roas}} > {overall_avg_mnet_roas:.2f}', 'column_id': 'mnet_roas'}, 
              'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{mnet_roas}} <= {overall_avg_mnet_roas:.2f}', 'column_id': 'mnet_roas'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Adv ROAS
+            
+            # Adv ROAS - green if ABOVE average, red if BELOW
             {'if': {'filter_query': f'{{adv_roas}} > {overall_avg_adv_roas:.2f}', 'column_id': 'adv_roas'}, 
              'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': f'{{adv_roas}} <= {overall_avg_adv_roas:.2f}', 'column_id': 'adv_roas'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Arrow column style
-            # Style the attribute column to show it's clickable
+            
+            # Make attribute column clickable-looking
             {'if': {'column_id': attr}, 
-             'backgroundColor': '#17a2b8', 'color': 'white', 'fontWeight': 'bold', 'cursor': 'pointer'}
+             'cursor': 'pointer', 'fontWeight': 'bold'}
         ]
         
-        # Add color highlighting for color columns
+        # Add color highlighting for color columns (KEEP THE ACTUAL COLORS!)
         if attr in ['bg_color', 'font_color', 'cta_color']:
             for idx, row in agg_data.iterrows():
                 color_value = row[attr]
@@ -785,9 +786,9 @@ def update_cs_attributes(advs, camp_types, camps):
                         'fontWeight': 'bold'
                     })
         
-        # Define columns
+        # Define columns (NO arrow column)
         columns = [
-            {'name': attr_display_name, 'id': attr},  # Arrow is now part of this column
+            {'name': attr_display_name + ' ▼', 'id': attr},  # Arrow in header
             {'name': 'Impressions', 'id': 'impressions'},
             {'name': 'Clicks', 'id': 'clicks'},
             {'name': 'CTR %', 'id': 'ctr'},
@@ -801,6 +802,8 @@ def update_cs_attributes(advs, camp_types, camps):
             html.Div([
                 html.H5(f"{attr_display_name} Performance", 
                         style={'color': '#ffcc00', 'marginTop': '25px', 'marginBottom': '10px'}),
+                html.P(f"Overall Averages: CVR: {overall_avg_cvr:.2f}%, CTR: {overall_avg_ctr:.2f}%, CPA: ${overall_avg_cpa:.2f}, Mnet ROAS: {overall_avg_mnet_roas:.2f}, Adv ROAS: {overall_avg_adv_roas:.2f}",
+                       style={'color': '#888', 'fontSize': '11px', 'marginBottom': '10px'}),
                 dash_table.DataTable(
                     id={'type': 'cs-attr-table', 'index': attr},
                     columns=columns,
@@ -835,17 +838,11 @@ def update_cs_attributes(advs, camp_types, camps):
     # If no attributes have data, show message
     if len(attribute_sections) == 0:
         return html.Div([
-            html.P("No attribute data available. The new columns (Background Color, Main Font Color, CTA Present, CTA Color, Adv Logo Present, Web Results Present) may be missing from your data.", 
+            html.P("No attribute data available.", 
                    style={'color': '#ffcc00', 'backgroundColor': '#331100', 'padding': '15px', 'borderRadius': '5px'})
         ])
     
     return html.Div(attribute_sections)
-
-
-# Drill-down callback for Creative & SERP attributes    
-    # Helper function to get color style
-
-
 # Drill-down callback for Creative & SERP attributes
 @callback(
     Output({'type': 'cs-drilldown-container', 'index': MATCH}, 'children'),
@@ -1287,6 +1284,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
