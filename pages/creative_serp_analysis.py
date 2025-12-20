@@ -8,6 +8,50 @@ from dash.dependencies import MATCH
 dash.register_page(__name__, path="/creative", name="Creative & SERP Analysis")
 
 # =========================================================
+# DEFINE CONSTANTS FIRST
+# =========================================================
+# Define attribute columns for Creative & SERP Analysis
+CS_ATTRIBUTE_COLUMNS = [
+    'bg_color',
+    'font_color',
+    'cta_present',
+    'cta_color',
+    'logo_present',
+    'web_results_present'
+]
+
+# Color mapping for visual display
+COLOR_MAP = {
+    'Green': '#00ff00',
+    'Grey': '#808080',
+    'Gray': '#808080',
+    'Black': '#000000',
+    'White': '#ffffff',
+    'Red': '#ff0000',
+    'Purple': '#800080',
+    'Pink': '#ffc0cb',
+    'Dark Blue': '#00008b',
+    'Turquoise': '#40e0d0',
+    'Turqoise': '#40e0d0',  # Handle typo
+    'Yellow': '#ffff00'
+}
+
+# Define attribute columns for Ad Title Analysis
+ATTRIBUTE_COLUMNS = [
+    'specificity',
+    'attention_trigger',
+    'tone',
+    'trust_signal',
+    'framing',
+    'character_count',
+    'word_count',
+    'is_number_present'
+]
+
+# =========================================================
+# LOAD DATA
+# =========================================================
+# =========================================================
 # LOAD DATA
 # =========================================================
 # =========================================================
@@ -122,6 +166,11 @@ except Exception as e:
 if 'campaign_type' not in df.columns:
     df['campaign_type'] = 'All'
 
+# Replace "null" strings with actual NaN values for attribute columns
+for col in CS_ATTRIBUTE_COLUMNS:
+    if col in df.columns:
+        df[col] = df[col].replace('null', np.nan)
+
 # Convert numeric columns
 for c in ['clicks','impressions','conversions','adv_cost','max_cost','adv_value']:
     df[c] = pd.to_numeric(df.get(c, 0), errors='coerce').fillna(0)
@@ -154,44 +203,6 @@ if 'actual_adv_payout' not in df.columns:
 ALL_ADVERTISERS = sorted(df['advertiser'].dropna().unique())
 ALL_CAMPAIGN_TYPES = sorted(df['campaign_type'].dropna().unique())
 ALL_CAMPAIGNS = sorted(df['campaign'].dropna().unique())
-# Define attribute columns for Creative & SERP Analysis
-CS_ATTRIBUTE_COLUMNS = [
-    'bg_color',
-    'font_color',
-    'cta_present',
-    'cta_color',
-    'logo_present',
-    'web_results_present'
-]
-
-# Color mapping for visual display
-COLOR_MAP = {
-    'Green': '#00ff00',
-    'Grey': '#808080',
-    'Gray': '#808080',
-    'Black': '#000000',
-    'White': '#ffffff',
-    'Red': '#ff0000',
-    'Purple': '#800080',
-    'Pink': '#ffc0cb',
-    'Dark Blue': '#00008b',
-    'Turquoise': '#40e0d0',
-    'Turqoise': '#40e0d0',  # Handle typo
-    'Yellow': '#ffff00'
-}
-
-# Define attribute columns for Ad Title Analysis
-ATTRIBUTE_COLUMNS = [
-    'specificity',
-    'attention_trigger',
-    'tone',
-    'trust_signal',
-    'framing',
-    'character_count',
-    'word_count',
-    'is_number_present'
-]
-
 # =========================================================
 # TABLE STYLE
 # =========================================================
@@ -833,142 +844,6 @@ def update_cs_attributes(advs, camp_types, camps):
 
 # Drill-down callback for Creative & SERP attributes    
     # Helper function to get color style
-def get_color_style(color_name):
-    bg_color = COLOR_MAP.get(color_name, '#333333')
-        # Determine text color based on background brightness
-    if color_name in ['Black', 'Dark Blue', 'Purple', 'Red']:
-        text_color = 'white'
-    else:
-        text_color = 'black'
-    return {'backgroundColor': bg_color, 'color': text_color, 'fontWeight': 'bold', 'padding': '5px', 'borderRadius': '3px'}
-    
-    # Create sections for each attribute
-    attribute_sections = []
-    
-    for attr in CS_ATTRIBUTE_COLUMNS:
-        if attr not in d.columns or d[attr].isna().all():
-            continue
-        
-        attr_display_name = attr.replace('_', ' ').title()
-        
-        # Aggregate by attribute
-        agg_data = d.groupby(attr, dropna=True).agg(
-            impressions=('impressions', 'sum'),
-            clicks=('clicks', 'sum'),
-            conversions=('conversions', 'sum'),
-            adv_cost=('adv_cost', 'sum'),
-            max_cost=('max_cost', 'sum'),
-            actual_adv_payout=('actual_adv_payout', 'sum')
-        ).reset_index()
-        
-        # Calculate metrics
-        agg_data['ctr'] = np.where(agg_data['impressions']>0, 100*agg_data['clicks']/agg_data['impressions'], 0)
-        agg_data['cvr'] = np.where(agg_data['clicks']>0, 100*agg_data['conversions']/agg_data['clicks'], 0)
-        agg_data['cpa'] = np.where(agg_data['conversions']>0, agg_data['adv_cost']/agg_data['conversions'], 0)
-        agg_data['mnet_roas'] = np.where(agg_data['max_cost']>0, agg_data['actual_adv_payout']/agg_data['max_cost'], 0)
-        agg_data['adv_roas'] = np.where(agg_data['adv_cost']>0, agg_data['actual_adv_payout']/agg_data['adv_cost'], 0)
-        
-        # Add expand/collapse indicator column
-        agg_data['▼'] = '▼'
-        
-        # Round numbers
-        agg_data = agg_data.round(2)
-        
-        # Create conditional styling for metrics
-        style_conditional = [
-            # CVR
-            {'if': {'filter_query': f'{{cvr}} > {overall_avg_cvr:.2f}', 'column_id': 'cvr'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cvr}} <= {overall_avg_cvr:.2f}', 'column_id': 'cvr'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # CTR
-            {'if': {'filter_query': f'{{ctr}} > {overall_avg_ctr:.2f}', 'column_id': 'ctr'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{ctr}} <= {overall_avg_ctr:.2f}', 'column_id': 'ctr'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # CPA (lower is better)
-            {'if': {'filter_query': f'{{cpa}} < {overall_avg_cpa:.2f}', 'column_id': 'cpa'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cpa}} >= {overall_avg_cpa:.2f}', 'column_id': 'cpa'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Mnet ROAS
-            {'if': {'filter_query': f'{{mnet_roas}} > {overall_avg_mnet_roas:.2f}', 'column_id': 'mnet_roas'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{mnet_roas}} <= {overall_avg_mnet_roas:.2f}', 'column_id': 'mnet_roas'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Adv ROAS
-            {'if': {'filter_query': f'{{adv_roas}} > {overall_avg_adv_roas:.2f}', 'column_id': 'adv_roas'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{adv_roas}} <= {overall_avg_adv_roas:.2f}', 'column_id': 'adv_roas'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            # Arrow column style
-            {'if': {'column_id': '▼'}, 
-             'backgroundColor': '#17a2b8', 'color': 'white', 'fontWeight': 'bold', 'textAlign': 'center', 'cursor': 'pointer'}
-        ]
-        
-        # Add color highlighting for color columns
-        if attr in ['bg_color', 'font_color', 'cta_color']:
-            for idx, row in agg_data.iterrows():
-                color_value = row[attr]
-                if color_value in COLOR_MAP:
-                    bg = COLOR_MAP[color_value]
-                    txt = 'white' if color_value in ['Black', 'Dark Blue', 'Purple', 'Red'] else 'black'
-                    style_conditional.append({
-                        'if': {'filter_query': f'{{{attr}}} = "{color_value}"', 'column_id': attr},
-                        'backgroundColor': bg,
-                        'color': txt,
-                        'fontWeight': 'bold'
-                    })
-        
-        # Define columns
-        columns = [
-            {'name': '▼', 'id': '▼'},
-            {'name': attr_display_name, 'id': attr},
-            {'name': 'Impressions', 'id': 'impressions'},
-            {'name': 'Clicks', 'id': 'clicks'},
-            {'name': 'CTR %', 'id': 'ctr'},
-            {'name': 'CVR %', 'id': 'cvr'},
-            {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'}
-        ]
-        
-        attribute_sections.append(
-            html.Div([
-                html.H5(f"{attr_display_name} Performance", 
-                        style={'color': '#ffcc00', 'marginTop': '25px', 'marginBottom': '10px'}),
-                dash_table.DataTable(
-                    id={'type': 'cs-attr-table', 'index': attr},
-                    columns=columns,
-                    data=agg_data.to_dict('records'),
-                    style_cell={
-                        'textAlign': 'left',
-                        'backgroundColor': '#222',
-                        'color': 'white',
-                        'border': '1px solid #444',
-                        'fontSize': '12px',
-                        'padding': '10px',
-                        'minWidth': '60px',
-                        'maxWidth': '200px',
-                        'overflow': 'hidden',
-                        'textOverflow': 'ellipsis'
-                    },
-                    style_header={
-                        'backgroundColor': '#111',
-                        'fontWeight': 'bold',
-                        'border': '1px solid #444',
-                        'color': '#17a2b8'
-                    },
-                    style_data_conditional=style_conditional,
-                    row_selectable='single',
-                    selected_rows=[]
-                ),
-                html.Div(id={'type': 'cs-drilldown-container', 'index': attr}, 
-                        style={'marginTop': '10px'})
-            ])
-        )
-    
-    return html.Div(attribute_sections)
 
 
 # Drill-down callback for Creative & SERP attributes
@@ -1412,5 +1287,6 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
