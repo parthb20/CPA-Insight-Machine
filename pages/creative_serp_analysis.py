@@ -768,8 +768,10 @@ def update_cs_attributes(advs, camp_types, camps):
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
             
             # Make attribute column clickable-looking
-            {'if': {'column_id': attr}, 
-             'cursor': 'pointer', 'fontWeight': 'bold'}
+            {'if': {'state': 'active'},
+             'backgroundColor': '#17a2b8', 'border': '2px solid #00ff00'},
+            {'if': {'state': 'selected'},
+             'backgroundColor': '#0d5e6b', 'border': '2px solid #00ff00'}
         ]
         
         # Add color highlighting for color columns (KEEP THE ACTUAL COLORS!)
@@ -1284,6 +1286,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
