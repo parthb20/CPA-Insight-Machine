@@ -762,9 +762,10 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     # CONTEXTUALITY BUBBLE CHARTS
     # CONTEXTUALITY TABLE
     # CONTEXTUALITY TABLE
+    # CONTEXTUALITY TABLE with collapsible rows
     html.H4("URL-Concept Contextuality Analysis", style={'color': '#5dade2', 'marginTop': '20px'}),
-    html.P("Shows performance by contextuality level. Click any row to see top 5 URL-Campaign pairs.", 
-       style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
+    html.P("Click ▶ arrow to expand/collapse details for each contextuality level.", 
+           style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
     dash_table.DataTable(
         id='contextuality_table',
         columns=[
@@ -776,15 +777,25 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         {'name': 'CTR %', 'id': 'ctr'},
         {'name': 'CPA', 'id': 'cpa'},
         {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-        {'name': 'Adv ROAS', 'id': 'adv_roas'}
-    ],
-        row_selectable='single',
-        selected_rows=[],
-        **TABLE_STYLE
-),
-
-# Inline drill-down section (collapsible)
-    html.Div(id="ctx_drilldown_section", style={'marginTop': '10px'}),
+        {'name': 'Adv ROAS', 'id': 'adv_roas'},
+        {'name': '', 'id': 'row_type', 'hidden': True},      # ADD THIS
+        {'name': '', 'id': 'row_id', 'hidden': True}
+        ],
+        **TABLE_STYLE,
+        style_data_conditional=[
+            {
+                'if': {'filter_query': '{row_type} = "detail"'},
+                'backgroundColor': '#1a1a1a',
+                'borderLeft': '3px solid #17a2b8',
+                'fontStyle': 'italic'
+            },
+            {
+                'if': {'filter_query': '{row_type} = "main"'},
+                'cursor': 'pointer'
+            }
+        ]
+    ),
+    dcc.Store(id='expanded_rows', data=[]),
     html.Hr(style={'borderColor': '#444'}),
     # BUBBLE CHARTS - Sprig URL & Domain (Full) - 2x2
     html.Hr(style={'borderColor': '#444'}),
@@ -1004,7 +1015,9 @@ def update_all(advs, camp_types, camps, sprig_count):
         if len(g_contextuality) > 0:
             ctx_table_data = g_contextuality.copy()
             ctx_table_data['contextuality'] = '▶ ' + ctx_table_data['contextuality'].astype(str)
-            ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 'cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas']].round(2).to_dict('records')
+            ctx_table_data['row_type'] = 'main'
+            ctx_table_data['row_id'] = range(len(ctx_table_data))
+            ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 'cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas', 'row_type', 'row_id']].round(2).to_dict('records')
         else:
             ctx_table_data = []
         
@@ -1188,118 +1201,118 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     return True, f"Drill-down for: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
 
 @callback(
-    Output("ctx_drilldown_section", "children"),
-    [Input("contextuality_table", "selected_rows"),
+    [Output('contextuality_table', 'data', allow_duplicate=True),
+     Output('expanded_rows', 'data')],
+    [Input('contextuality_table', 'active_cell'),
      Input('adv_dd','value'),
      Input('camp_type_dd','value'),
      Input('camp_dd','value')],
-    [State("contextuality_table", "data")],
+    [State('contextuality_table', 'data'),
+     State('expanded_rows', 'data')],
     prevent_initial_call=True
 )
-def handle_contextuality_drilldown(selected_rows, advs, camp_types, camps, table_data):
-    """Show inline URL-Campaign pairs when contextuality row is clicked"""
+def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, expanded_rows):
+    """Toggle expansion of contextuality rows inline"""
     
-    # If no row selected, hide the section
-    if not selected_rows or not table_data:
-        return html.Div()
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
     
-    # Get selected contextuality value (remove the arrow prefix)
-    row_idx = selected_rows[0]
-    contextuality_value = table_data[row_idx]['contextuality'].replace('▶ ', '').strip()
-    ctx_cvr = table_data[row_idx]['cvr']
-    ctx_ctr = table_data[row_idx]['ctr']
-    ctx_cpa = table_data[row_idx]['cpa']
-    ctx_mnet_roas = table_data[row_idx]['mnet_roas']
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # Filter data
-    d = filter_dataframe(df, advs, camp_types, camps)
+    # If filters changed, rebuild table without expanded rows
+    if trigger_id in ['adv_dd', 'camp_type_dd', 'camp_dd']:
+        # Remove all detail rows
+        main_rows = [row for row in table_data if row.get('row_type') == 'main']
+        return main_rows, []
     
-    # Make sure contextuality column exists
-    if 'contextuality' not in d.columns:
-        return html.Div("Contextuality column not found", style={'color': 'red', 'padding': '10px'})
+    # Handle row click
+    if not active_cell or not table_data:
+        raise dash.exceptions.PreventUpdate
     
-    # Filter by selected contextuality value
-    d = d[d['contextuality'] == contextuality_value].copy()
+    clicked_row_idx = active_cell['row']
+    clicked_row = table_data[clicked_row_idx]
     
-    if len(d) == 0:
-        return dbc.Alert(
-            f"No data found for contextuality: {contextuality_value}",
-            color="warning",
-            style={'marginTop': '10px'}
-        )
+    # Only process main rows
+    if clicked_row.get('row_type') != 'main':
+        raise dash.exceptions.PreventUpdate
     
-    # Aggregate by URL-Campaign pairs
-    pairs = d.groupby(['url', 'campaign'], dropna=False).agg({
-        'clicks': 'sum',
-        'impressions': 'sum',
-        'conversions': 'sum',
-        'adv_cost': 'sum',
-        'max_cost': 'sum',
-        'adv_value': 'sum'
-    }).reset_index()
+    row_id = clicked_row.get('row_id')
+    contextuality_value = clicked_row['contextuality'].replace('▶ ', '').replace('▼ ', '').strip()
     
-    # Calculate metrics
-    pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], 0)
-    pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], 0)
-    pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], 0)
-    pairs['mnet_roas'] = np.where(pairs['max_cost']>0, pairs['adv_value']/pairs['max_cost'], 0)
-    
-    # Get top 5 by clicks
-    top_pairs = pairs.nlargest(5, 'clicks').copy()
-    
-    if len(top_pairs) == 0:
-        return html.Div()
-    
-    # Calculate comparison columns for color coding
-    top_pairs['cvr_vs_ctx'] = top_pairs['cvr'] - ctx_cvr
-    top_pairs['ctr_vs_ctx'] = top_pairs['ctr'] - ctx_ctr
-    top_pairs['cpa_vs_ctx'] = top_pairs['cpa'] - ctx_cpa
-    top_pairs['mnet_roas_vs_ctx'] = top_pairs['mnet_roas'] - ctx_mnet_roas
-    
-    # Format for display
-    drilldown_data = top_pairs[['url', 'campaign', 'clicks', 'conversions', 'cvr', 'cvr_vs_ctx', 'ctr', 'ctr_vs_ctx', 'cpa', 'cpa_vs_ctx', 'mnet_roas', 'mnet_roas_vs_ctx']].round(2).to_dict('records')
-    
-    # Return expanded card with table
-    return dbc.Card([
-        dbc.CardHeader([
-            html.H5(f"📊 Top 5 URL-Campaign Pairs for Contextuality: {contextuality_value}", 
-                    style={'color': '#17a2b8', 'marginBottom': '0'}),
-            html.P(f"Total pairs analyzed: {len(pairs)} | Showing top 5 by clicks", 
-                   style={'color': '#aaa', 'fontSize': '11px', 'marginBottom': '0'})
-        ], style={'backgroundColor': '#333', 'padding': '10px'}),
-        dbc.CardBody([
-            dash_table.DataTable(
-                data=drilldown_data,
-                columns=[
-                    {'name': 'URL', 'id': 'url'},
-                    {'name': 'Campaign', 'id': 'campaign'},
-                    {'name': 'Clicks', 'id': 'clicks', 'type': 'numeric'},
-                    {'name': 'Conv', 'id': 'conversions', 'type': 'numeric'},
-                    {'name': 'CVR %', 'id': 'cvr', 'type': 'numeric'},
-                    {'name': 'CTR %', 'id': 'ctr', 'type': 'numeric'},
-                    {'name': 'CPA', 'id': 'cpa', 'type': 'numeric'},
-                    {'name': 'Mnet ROAS', 'id': 'mnet_roas', 'type': 'numeric'}
-                ],
-                style_data_conditional=[
-                    {'if': {'filter_query': '{cvr_vs_ctx} > 0', 'column_id': 'cvr'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{cvr_vs_ctx} < 0', 'column_id': 'cvr'}, 'color': '#ff0000', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{ctr_vs_ctx} > 0', 'column_id': 'ctr'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{ctr_vs_ctx} < 0', 'column_id': 'ctr'}, 'color': '#ff0000', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{cpa_vs_ctx} < 0', 'column_id': 'cpa'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{cpa_vs_ctx} > 0', 'column_id': 'cpa'}, 'color': '#ff0000', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{mnet_roas_vs_ctx} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-                    {'if': {'filter_query': '{mnet_roas_vs_ctx} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000', 'fontWeight': 'bold'}
-                ],
-                page_size=5,
-                style_table={'overflowX': 'auto'},
-                style_header={'backgroundColor': '#444', 'color': 'white', 'fontWeight': 'bold'},
-                style_data={'backgroundColor': '#1a1a1a', 'color': 'white', 'fontSize': '11px'},
-                style_cell={'textAlign': 'left', 'padding': '8px'},
-                style_cell_conditional=[
-                    {'if': {'column_id': 'url'}, 'maxWidth': '400px', 'overflow': 'hidden', 'textOverflow': 'ellipsis'}
-                ]
-            )
-        ], style={'backgroundColor': '#1a1a1a', 'padding': '15px'})
-    ], style={'marginTop': '10px', 'border': '2px solid #17a2b8'})
-
-
+    # Toggle expansion
+    if row_id in expanded_rows:
+        # Collapse: remove from expanded list and remove detail rows
+        expanded_rows.remove(row_id)
+        new_data = []
+        for row in table_data:
+            if row.get('row_type') == 'main':
+                row_copy = row.copy()
+                if row_copy.get('row_id') == row_id:
+                    row_copy['contextuality'] = '▶ ' + contextuality_value
+                new_data.append(row_copy)
+            elif row.get('parent_id') != row_id:
+                new_data.append(row)
+        return new_data, expanded_rows
+    else:
+        # Expand: add to expanded list and insert detail rows
+        expanded_rows.append(row_id)
+        
+        # Get drill-down data
+        d = filter_dataframe(df, advs, camp_types, camps)
+        
+        if 'contextuality' not in d.columns:
+            raise dash.exceptions.PreventUpdate
+        
+        d = d[d['contextuality'] == contextuality_value].copy()
+        
+        if len(d) == 0:
+            raise dash.exceptions.PreventUpdate
+        
+        # Aggregate by URL-Campaign pairs
+        pairs = d.groupby(['url', 'campaign'], dropna=False).agg({
+            'clicks': 'sum',
+            'impressions': 'sum',
+            'conversions': 'sum',
+            'adv_cost': 'sum',
+            'max_cost': 'sum',
+            'adv_value': 'sum'
+        }).reset_index()
+        
+        pairs['cvr'] = np.where(pairs['clicks']>0, 100*pairs['conversions']/pairs['clicks'], 0)
+        pairs['ctr'] = np.where(pairs['impressions']>0, 100*pairs['clicks']/pairs['impressions'], 0)
+        pairs['cpa'] = np.where(pairs['conversions']>0, pairs['adv_cost']/pairs['conversions'], 0)
+        pairs['mnet_roas'] = np.where(pairs['max_cost']>0, pairs['adv_value']/pairs['max_cost'], 0)
+        
+        top_pairs = pairs.nlargest(5, 'clicks')
+        
+        # Build new table data with detail rows inserted
+        new_data = []
+        for i, row in enumerate(table_data):
+            if row.get('row_type') == 'main':
+                row_copy = row.copy()
+                if row_copy.get('row_id') == row_id:
+                    row_copy['contextuality'] = '▼ ' + contextuality_value
+                new_data.append(row_copy)
+                
+                # Insert detail rows after this main row
+                if row_copy.get('row_id') == row_id:
+                    for _, pair in top_pairs.iterrows():
+                        detail_row = {
+                            'contextuality': f"  ↳ {pair['url'][:50]}... | {pair['campaign'][:30]}",
+                            'impressions': pair['impressions'],
+                            'clicks': int(pair['clicks']),
+                            'conversions': round(pair['conversions'], 2),
+                            'cvr': round(pair['cvr'], 2),
+                            'ctr': round(pair['ctr'], 2),
+                            'cpa': round(pair['cpa'], 2),
+                            'mnet_roas': round(pair['mnet_roas'], 2),
+                            'adv_roas': '',
+                            'row_type': 'detail',
+                            'parent_id': row_id
+                        }
+                        new_data.append(detail_row)
+            else:
+                new_data.append(row)
+        
+        return new_data, expanded_rows
