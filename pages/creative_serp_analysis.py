@@ -16,8 +16,7 @@ CS_ATTRIBUTE_COLUMNS = [
     'font_color',
     'cta_present',
     'cta_color',
-    'logo_present',
-    'web_results_present'
+    'logo_present'
 ]
 
 # Color mapping for visual display
@@ -89,7 +88,6 @@ COL_MAP = {
     'Text CTA Present?': 'cta_present',
     'CTA Color': 'cta_color',
     'Adv Logo Present?': 'logo_present',
-    'Web Results Present?': 'web_results_present',
     'Clicks': 'clicks',
     'Ad Impressions': 'impressions',
     'Weighted Conversion': 'conversions',
@@ -1286,6 +1284,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
