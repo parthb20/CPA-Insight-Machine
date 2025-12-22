@@ -687,9 +687,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'CTR %', 'id': 'ctr'},
             {'name': 'CPA', 'id': 'cpa'},
             {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': '', 'id': 'row_type', 'hidden': True},
-            {'name': '', 'id': 'parent_concept', 'hidden': True}
-        ],
+          ],
         style_cell=TABLE_STYLE['style_cell'],
         style_header=TABLE_STYLE['style_header'],
         style_data=TABLE_STYLE['style_data'],
@@ -793,9 +791,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'CTR %', 'id': 'ctr'},
             {'name': 'CPA', 'id': 'cpa'},
             {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'},
-            {'name': '', 'id': 'row_type', 'hidden': True},
-            {'name': '', 'id': 'row_id', 'hidden': True}
+            {'name': 'Adv ROAS', 'id': 'adv_roas'}
         ],
         style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
@@ -1430,6 +1426,7 @@ def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, 
                 new_data.append(row)
         
         return new_data, expanded_rows
+
 
 
 
