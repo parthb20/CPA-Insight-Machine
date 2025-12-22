@@ -43,7 +43,6 @@ ATTRIBUTE_COLUMNS = [
     'trust_signal',
     'framing',
     'character_count',
-    'word_count',
     'is_number_present'
 ]
 
@@ -122,7 +121,6 @@ try:
         'Trust Signal': 'trust_signal',
         'Framing': 'framing',
         'Character Count': 'character_count',
-        'Word Count': 'word_count',
         'Is Number Present?': 'is_number_present',
         'Ad Impressions': 'impressions',
         'Clicks': 'clicks',
@@ -1284,6 +1282,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
