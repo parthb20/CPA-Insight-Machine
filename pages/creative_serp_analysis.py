@@ -292,9 +292,51 @@ layout = dbc.Container(
 
                                         # Creative Tables
                                         html.H4("Creative Performance", style={'color': '#5dade2'}),
-                                        html.H5("Best 5 Creatives", style={'color': '#00ff00'}),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                html.Label("Best/Worst:", style={'color': '#aaa', 'fontSize': '12px'}),
+                                                dcc.Dropdown(
+                                                    id='creative_best_worst',
+                                                    options=[
+                                                        {'label': 'Best', 'value': 'best'},
+                                                        {'label': 'Worst', 'value': 'worst'}
+                                                    ],
+                                                    value='best',
+                                                    clearable=False,
+                                                    style={'color': 'black', 'fontSize': '12px'}
+                                                )
+                                            ], width=2),
+                                            dbc.Col([
+                                                html.Label("Count:", style={'color': '#aaa', 'fontSize': '12px'}),
+                                                dcc.Input(
+                                                    id='creative_count',
+                                                    type='number',
+                                                    value=5,
+                                                    min=1,
+                                                    max=50,
+                                                    style={'width': '100%', 'color': 'black'}
+                                                )
+                                            ], width=2),
+                                            dbc.Col([
+                                                html.Label("Sort By:", style={'color': '#aaa', 'fontSize': '12px'}),
+                                                dcc.Dropdown(
+                                                    id='creative_sort_metric',
+                                                    options=[
+                                                        {'label': 'CVR', 'value': 'cvr'},
+                                                        {'label': 'CTR', 'value': 'ctr'},
+                                                        {'label': 'CPA', 'value': 'cpa'},
+                                                        {'label': 'Mnet ROAS', 'value': 'mnet_roas'},
+                                                        {'label': 'Adv ROAS', 'value': 'adv_roas'},
+                                                        {'label': 'Conversions', 'value': 'conversions'}
+                                                    ],
+                                                    value='cvr',
+                                                    clearable=False,
+                                                    style={'color': 'black', 'fontSize': '12px'}
+                                                )
+                                            ], width=3)
+                                        ], style={'marginBottom': '15px'}),
                                         dash_table.DataTable(
-                                            id='best_creatives',
+                                            id='creative_table',
                                             columns=[
                                                 {'name': 'Creative', 'id': 'creative'},
                                                 {'name': 'Clicks', 'id': 'clicks'},
@@ -307,33 +349,13 @@ layout = dbc.Container(
                                                 {'name': 'Adv Cost', 'id': 'adv_cost'},
                                                 {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
                                                 {'name': 'Max Cost', 'id': 'max_cost'}
-                                                ],
-                                            style_cell=TABLE_STYLE['style_cell'],
-                                            style_header=TABLE_STYLE['style_header'],
-                                            style_data=TABLE_STYLE['style_data'],
-                                            style_data_conditional=[]  # To be updated dynamically via callback
-                                        ),
-                                        html.H5("Worst 5 Creatives", style={'color': '#ff0000'}),
-                                        dash_table.DataTable(
-                                            id='worst_creatives',
-                                            columns=[
-                                                {'name': 'Creative', 'id': 'creative'},
-                                                {'name': 'Clicks', 'id': 'clicks'},
-                                                {'name': 'Conv', 'id': 'conversions'},
-                                                {'name': 'CVR %', 'id': 'cvr'},
-                                                {'name': 'CTR %', 'id': 'ctr'},
-                                                {'name': 'CPA', 'id': 'cpa'},
-                                                {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-                                                {'name': 'Adv ROAS', 'id': 'adv_roas'},
-                                                {'name': 'Adv Cost', 'id': 'adv_cost'},
-                                                {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
-                                                {'name': 'Max Cost', 'id': 'max_cost'}
-                                                ],
+                                            ],
                                             style_cell=TABLE_STYLE['style_cell'],
                                             style_header=TABLE_STYLE['style_header'],
                                             style_data=TABLE_STYLE['style_data'],
                                             style_data_conditional=[]
-                                            ),
+                                        ),
+
                                         html.Hr(style={'borderColor': '#444'}),
 
                                 # SERP Tables
@@ -1173,17 +1195,45 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
         d = d[d['campaign_type'].isin(camp_types)]
     if camps:
         d = d[d['campaign'].isin(camps)]
+
+    # Create character count buckets if needed
+    if attr == 'character_count':
+        def create_bucket(count):
+            if pd.isna(count):
+                return 'Unknown'
+            count = int(count)
+            if count <= 5:
+                return '0-5'
+            elif count <= 10:
+                return '6-10'
+            elif count <= 15:
+                return '11-15'
+            elif count <= 20:
+                return '16-20'
+            elif count <= 25:
+                return '21-25'
+            elif count <= 30:
+                return '26-30'
+            else:
+                return '31+'
+        d['character_count_bucket'] = d['character_count'].apply(create_bucket)
+        group_attr = 'character_count_bucket'
+    else:
+        group_attr = attr
+
+
     
     # Get selected value and its average
     selected_value = table_data[selected_rows[0]][attr]
-    avg_cvr = float(table_data[selected_rows[0]]['cvr'].replace('%', ''))
-    avg_ctr = float(table_data[selected_rows[0]]['ctr'].replace('%', ''))
-    avg_cpa = float(table_data[selected_rows[0]]['cpa'].replace('$', ''))
+    avg_cvr = float(table_data[selected_rows[0]]['cvr'])
+    avg_ctr = float(table_data[selected_rows[0]]['ctr'])
+    avg_cpa = float(table_data[selected_rows[0]]['cpa'])
     avg_mnet_roas = float(table_data[selected_rows[0]]['mnet_roas'])
     avg_adv_roas = float(table_data[selected_rows[0]]['adv_roas'])
     
     # Filter for this attribute value
-    detail_data = d[d[attr] == selected_value].copy()
+    detail_data = d[d[group_attr] == selected_value].copy()
+
     
     # Aggregate by ad_title
     title_agg = detail_data.groupby('ad_title', dropna=True).agg(
@@ -1225,11 +1275,13 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
         {'if': {'filter_query': f'{{adv_roas}} <= {avg_adv_roas}', 'column_id': 'adv_roas'}, 
          'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
     ]
+ 
+    attr_display = attr.replace('_', ' ').title()
     
     return html.Div([
         dbc.Button("Collapse", id={'type': 'collapse-btn', 'index': attr}, 
                    color="secondary", size="sm", style={'marginBottom': '10px'}),
-        html.H6(f"Ad Titles for {attr.replace('_', ' ').title()}: {selected_value}", 
+        html.H6(f"Ad Titles for {attr_display}: {selected_value}", 
                 style={'color': '#ffcc00', 'marginBottom': '10px'}),
         html.P([
             f"Category Averages: ",
@@ -1282,6 +1334,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
