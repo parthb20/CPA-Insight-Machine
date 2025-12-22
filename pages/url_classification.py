@@ -164,10 +164,20 @@ def extract_parent_domain(url):
         return [p.lower() for p in parts if len(p) > 2]
     return []
 
+# Add compound word pairs
+COMPOUND_PAIRS = {
+    ('blood', 'pressure'), ('credit', 'card'), ('weight', 'loss'), 
+    ('health', 'insurance'), ('life', 'insurance'), ('auto', 'insurance'),
+    ('mortgage', 'rates'), ('interest', 'rates'), ('stock', 'market'),
+    ('real', 'estate'), ('personal', 'loan'), ('student', 'loan'),
+    ('diabetes', 'treatment'), ('heart', 'disease'), ('sleep', 'apnea'),
+    ('debt', 'consolidation'), ('retirement', 'planning')
+}
+
 def extract_concepts(url):
-    """Extract single meaningful words and n-grams separately"""
+    """Extract single meaningful words and compound words (nouns only)"""
     if not isinstance(url, str):
-        return {'single': [], 'multi': []}
+        return []
     
     url = re.sub(r'https?://', '', url)
     parent_domains = set(extract_parent_domain('http://' + url))
@@ -175,39 +185,30 @@ def extract_concepts(url):
     words = [w for w in words if w not in STOP_WORDS and w not in parent_domains 
              and w not in GENERIC_WORDS and not w.isdigit()]
     
-    # Single meaningful words (nouns/keywords)
-    single_words = [w for w in words if w in MEANINGFUL_KEYWORDS or len(w) >= 5]
+    concepts = []
     
-    # Multi-word concepts
-    multi_concepts = []
-    if len(words) >= 2:
-        for i in range(len(words) - 1):
-            multi_concepts.append(f"{words[i]} {words[i+1]}")
-    if len(words) >= 3:
-        for i in range(len(words) - 2):
-            multi_concepts.append(f"{words[i]} {words[i+1]} {words[i+2]}")
+    # Check for compound pairs
+    for i in range(len(words) - 1):
+        if (words[i], words[i+1]) in COMPOUND_PAIRS:
+            concepts.append(f"{words[i]} {words[i+1]}")
     
-    return {'single': single_words, 'multi': multi_concepts}
+    # Single meaningful words (nouns/keywords only)
+    single_words = [w for w in words if w in MEANINGFUL_KEYWORDS and len(w) >= 4]
+    concepts.extend(single_words)
+    
+    return concepts
 
-df['concept_dict'] = df['url'].apply(extract_concepts)
-df['concepts_single'] = df['concept_dict'].apply(lambda x: x['single'] if isinstance(x, dict) else [])
-df['concepts_multi'] = df['concept_dict'].apply(lambda x: x['multi'] if isinstance(x, dict) else [])
+df['concepts'] = df['url'].apply(extract_concepts)
 
-# Pre-filter single words
-all_single = [c for concepts in df['concepts_single'] for c in concepts]
-single_counts = Counter(all_single)
-valid_single = {c for c, count in single_counts.items() if count >= 5}
-df['concepts_single'] = df['concepts_single'].apply(lambda x: [c for c in x if c in valid_single])
+# Pre-filter concepts
+all_concepts = [c for concepts in df['concepts'] for c in concepts]
+concept_counts = Counter(all_concepts)
+valid_concepts = {c for c, count in concept_counts.items() if count >= 5}
+df['concepts'] = df['concepts'].apply(lambda x: [c for c in x if c in valid_concepts])
 
-# Pre-filter multi words
-all_multi = [c for concepts in df['concepts_multi'] for c in concepts]
-multi_counts = Counter(all_multi)
-valid_multi = {c for c, count in multi_counts.items() if count >= 5}
-df['concepts_multi'] = df['concepts_multi'].apply(lambda x: [c for c in x if c in valid_multi])
+# Create exploded version
+df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 
-# Create exploded versions
-df_concepts_single = df.explode('concepts_single').dropna(subset=['concepts_single'])
-df_concepts_multi = df.explode('concepts_multi').dropna(subset=['concepts_multi'])# Use the actual contextuality column from CSV
 # Map the column name first
 if 'URL-Concept Contextuality' in df.columns and 'contextuality' not in df.columns:
     df['contextuality'] = df['URL-Concept Contextuality']
@@ -296,12 +297,15 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         g['mnet_roas'] = np.where(g['max_cost']>0, g['adv_value']/g['max_cost'], np.nan)
     
     # Sort by metric_sort DESCENDING and take top N by clicks
+    # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
-    # Sort by metric_sort in appropriate direction for left-to-right layout
-    if metric_sort == 'ctr':
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)  # CTR: high to low
+# Then sort by metric_sort for left-to-right layout
+    if metric_sort == 'ctr' or metric_sort == 'cvr' or metric_sort == 'mnet_roas':
+    # Higher is better - decreasing left to right
+        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     elif metric_sort == 'cpa':
-        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)   # CPA: low to high
+    # Lower is better - increasing left to right (lower CPA on left)
+        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
     else:
         g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     
@@ -420,12 +424,13 @@ def bubble_chart(g, x_col, metric, hover_map, title, top_n=5):
 # Calculate bubble sizes - make them larger and more spread out
     # Calculate bubble sizes using logarithmic scaling for better visual distribution
     # Calculate bubble sizes with adjusted scaling for better visibility
-    max_size = 100
-    min_size = 30
+    # Use logarithmic scaling for better size distribution
+    max_size = 80
+    min_size = 35
     if g['clicks'].max() > g['clicks'].min():
-    # Use square root scaling for more realistic size differences
-      sqrt_clicks = np.sqrt(g['clicks'])
-      sizes = (sqrt_clicks - sqrt_clicks.min()) / (sqrt_clicks.max() - sqrt_clicks.min()) * (max_size - min_size) + min_size
+    # Use log scaling with smoothing to prevent extreme differences
+        log_clicks = np.log1p(g['clicks'])  # log(1+x) to handle small values
+        sizes = (log_clicks - log_clicks.min()) / (log_clicks.max() - log_clicks.min()) * (max_size - min_size) + min_size
     else:
         sizes = [max_size] * len(g)
 
@@ -634,15 +639,23 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     html.Hr(style={'borderColor': '#444'}),
 
     # CONCEPT TABLE CONTROLS
-    html.H4("Concept Analysis Tables", style={'color': '#5dade2', 'marginTop': '20px'}),
+    # ANALYSIS TABLES WITH FILTERS
+    html.H4("Performance Analysis Tables", style={'color': '#5dade2', 'marginTop': '20px'}),
+    html.P("📊 Filter by performance type, adjust item count, and sort by different metrics to identify patterns", 
+           style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '15px'}),
+
+    # Concept Table Filters
+    html.H5("📍 Concept Analysis", style={'color': '#17a2b8', 'marginTop': '20px'}),
+    html.P("Analyzes extracted keywords/concepts from URLs. Click on a concept to see drill-down of related compound terms (e.g., 'blood' → 'blood pressure', 'blood sugar')", 
+           style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'}),
     dbc.Row([
         dbc.Col([
-            html.Label("Table Type:", style={'color': 'white'}),
+            html.Label("Performance Type:", style={'color': 'white'}),
             dcc.Dropdown(id='concept_table_type', value='best',
-                         options=[{'label': 'Best Performers', 'value': 'best'},
-                                  {'label': 'Worst Performers', 'value': 'worst'}],
+                         options=[{'label': '✓ Best Performers', 'value': 'best'},
+                                  {'label': '✗ Worst Performers', 'value': 'worst'}],
                          style={'color': 'black'})
-        ], width=2),
+        ], width=3),
         dbc.Col([
             html.Label("Number of Items:", style={'color': 'white'}),
             dcc.Dropdown(id='concept_table_count', value=10,
@@ -660,7 +673,91 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
                          style={'color': 'black'})
         ], width=2)
     ], style={'marginBottom': '15px'}),
+    #
+# CONCEPT TABLE with drill-down
+    dash_table.DataTable(
+        id='dynamic_concepts_table',
+        columns=[
+            {'name': 'Concept', 'id': 'concepts'},
+            {'name': 'Clicks', 'id': 'clicks'},
+            {'name': 'Conv', 'id': 'conversions'},
+            {'name': 'CVR %', 'id': 'cvr'},
+            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
+            {'name': 'CTR %', 'id': 'ctr'},
+            {'name': 'CPA', 'id': 'cpa'},
+            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
+            {'name': '', 'id': 'row_type', 'hidden': True},
+            {'name': '', 'id': 'parent_concept', 'hidden': True}
+        ],
+        style_data_conditional=[
+            {'if': {'filter_query': '{cvr} > {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': '{cvr} < {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': '{row_type} = "detail"'}, 
+             'backgroundColor': '#1a1a1a', 'borderLeft': '3px solid #5dade2'},
+            {'if': {'filter_query': '{row_type} = "main"'}, 'cursor': 'pointer'}
+        ],
+        **TABLE_STYLE
+    ),
+    dcc.Store(id='concept_expanded_rows', data=[]),
+    html.Hr(style={'borderColor': '#444'}),
 
+# URL Table Filters
+    html.H5("🔗 URL Analysis", style={'color': '#17a2b8', 'marginTop': '20px'}),
+    html.P("Analyzes individual publisher URLs. Identify high-performing URLs to whitelist or low-performing URLs to blacklist", 
+           style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'}),
+    dbc.Row([
+        dbc.Col([
+            html.Label("Performance Type:", style={'color': 'white'}),
+            dcc.Dropdown(id='url_table_type', value='best',
+                         options=[{'label': '✓ Best Performers', 'value': 'best'},
+                                  {'label': '✗ Worst Performers', 'value': 'worst'}],
+                         style={'color': 'black'})
+        ], width=3),
+        dbc.Col([
+            html.Label("Number of Items:", style={'color': 'white'}),
+            dcc.Dropdown(id='url_table_count', value=10,
+                         options=[{'label': str(x), 'value': x} for x in [5, 10, 15, 20, 30]],
+                         style={'color': 'black'})
+        ], width=2),
+        dbc.Col([
+            html.Label("Sort By:", style={'color': 'white'}),
+            dcc.Dropdown(id='url_table_sort', value='cvr',
+                         options=[{'label': 'CVR', 'value': 'cvr'},
+                                  {'label': 'CTR', 'value': 'ctr'},
+                                  {'label': 'Clicks', 'value': 'clicks'},
+                                  {'label': 'CPA', 'value': 'cpa'},
+                                  {'label': 'ROAS', 'value': 'mnet_roas'}],
+                         style={'color': 'black'})
+        ], width=2)
+    ], style={'marginBottom': '15px'}),
+
+# URL TABLE
+    dash_table.DataTable(
+        id='dynamic_urls_table',
+        columns=[
+            {'name': 'URL', 'id': 'url'},
+            {'name': 'Clicks', 'id': 'clicks'},
+            {'name': 'Conv', 'id': 'conversions'},
+            {'name': 'CVR %', 'id': 'cvr'},
+            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
+            {'name': 'CTR %', 'id': 'ctr'},
+            {'name': 'CPA', 'id': 'cpa'},
+            {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
+        ],
+        style_cell_conditional=[
+            {'if': {'column_id': 'url'}, 'maxWidth': '40%', 'whiteSpace': 'normal', 'height': 'auto'}
+        ],
+        style_data_conditional=[
+            {'if': {'filter_query': '{cvr} > {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': '{cvr} < {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'}
+        ],
+        **TABLE_STYLE
+    ),
+    html.Hr(style={'borderColor': '#444'}),
     # CONCEPT TABLES
     dash_table.DataTable(
         id='dynamic_concepts_table',
@@ -682,92 +779,6 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         **TABLE_STYLE
     ),
     html.Hr(style={'borderColor': '#444'}),
-
-# DRILL-DOWN TABLE FOR MULTI-WORD CONCEPTS
-    html.H5("Multi-Word Concepts Breakdown", style={'color': '#17a2b8', 'marginTop': '20px'}),
-    dash_table.DataTable(
-        id='multi_concepts_table',
-        columns=[
-            {'name': 'Multi-Word Concept', 'id': 'concepts'},
-        {'name': 'Clicks', 'id': 'clicks'},
-        {'name': 'CVR %', 'id': 'cvr'},
-        {'name': 'CTR %', 'id': 'ctr'},
-    ],
-    **TABLE_STYLE
-),
-    html.Hr(style={'borderColor': '#444'}),
-
-    # URL TABLES - FULL WIDTH
-    html.H4("Best & Worst 5 URLs by CVR", style={'color': '#5dade2', 'marginTop': '20px'}),
-    html.H5("Best 5: High CVR with Good Volume", style={'color': '#00ff00'}),
-    html.P("Logic: CVR > 0%, Min 10 clicks, Scored by CVR × log(clicks)", style={'color': '#aaa', 'fontSize': '11px'}),
-    dash_table.DataTable(
-        id='best_urls',
-        columns=[
-            {'name': 'URL', 'id': 'url'},
-            {'name': 'Clicks', 'id': 'clicks'},
-            {'name': 'Conv', 'id': 'conversions'},
-            {'name': 'CVR %', 'id': 'cvr'},
-            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
-            {'name': 'CVR Deviation %', 'id': 'cvr_vs_avg'},
-            {'name': 'CTR %', 'id': 'ctr'},
-            {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'},
-            {'name': 'Adv Cost', 'id': 'adv_cost'},
-            {'name': 'Max Cost', 'id': 'max_cost'}
-            ],
-        style_data_conditional=[
-            {'if': {'filter_query': '{cvr_vs_avg} > 0', 'column_id': 'cvr_vs_avg'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': '{cvr_vs_avg} < 0', 'column_id': 'cvr_vs_avg'}, 'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': '{cvr_vs_avg} > 0', 'column_id': 'cvr'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{cvr_vs_avg} < 0', 'column_id': 'cvr'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{ctr_vs_avg} > 0', 'column_id': 'ctr'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{ctr_vs_avg} < 0', 'column_id': 'ctr'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{cpa_vs_avg} < 0', 'column_id': 'cpa'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{cpa_vs_avg} > 0', 'column_id': 'cpa'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{mnet_roas_vs_avg} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{mnet_roas_vs_avg} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000'}
-        ],
-        **TABLE_STYLE
-    ),
-    html.Br(),
-    html.H5("Worst 5: High Clicks with No/Low Conversions", style={'color': '#ff0000'}),
-    html.P("Logic: CVR ≤ 0.6%, Min 10 clicks, Sorted by clicks (high to low)", style={'color': '#aaa', 'fontSize': '11px'}),
-    dash_table.DataTable(
-        id='worst_urls',
-        columns=[
-            {'name': 'URL', 'id': 'url'},
-            {'name': 'Clicks', 'id': 'clicks'},
-            {'name': 'Conv', 'id': 'conversions'},
-            {'name': 'CVR %', 'id': 'cvr'},
-            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
-            {'name': 'CVR Deviation %', 'id': 'cvr_vs_avg'},
-            {'name': 'CTR %', 'id': 'ctr'},
-            {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'},
-            {'name': 'Adv Cost', 'id': 'adv_cost'},
-            {'name': 'Max Cost', 'id': 'max_cost'}
-        ],
-        style_data_conditional=[
-            {'if': {'filter_query': '{cvr_vs_avg} > 0', 'column_id': 'cvr_vs_avg'}, 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': '{cvr_vs_avg} < 0', 'column_id': 'cvr_vs_avg'}, 'color': '#ff0000', 'fontWeight': 'bold'},
-            {'if': {'filter_query': '{cvr_vs_avg} > 0', 'column_id': 'cvr'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{cvr_vs_avg} < 0', 'column_id': 'cvr'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{ctr_vs_avg} > 0', 'column_id': 'ctr'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{ctr_vs_avg} < 0', 'column_id': 'ctr'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{cpa_vs_avg} < 0', 'column_id': 'cpa'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{cpa_vs_avg} > 0', 'column_id': 'cpa'}, 'color': '#ff0000'},
-            {'if': {'filter_query': '{mnet_roas_vs_avg} > 0', 'column_id': 'mnet_roas'}, 'color': '#00ff00'},
-            {'if': {'filter_query': '{mnet_roas_vs_avg} < 0', 'column_id': 'mnet_roas'}, 'color': '#ff0000'}
-        ],
-        **TABLE_STYLE
-    ),
-
-    html.Hr(style={'borderColor': '#444'}),
-
-
     html.Div([
     html.Span("ℹ️ ", style={'color': '#17a2b8', 'fontSize': '14px'}),
     html.Span("Highly Contextual", style={'color': '#00ff00', 'fontWeight': 'bold', 'marginRight': '5px'}),
@@ -791,6 +802,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'Clicks', 'id': 'clicks'},
             {'name': 'Conv', 'id': 'conversions'},
             {'name': 'CVR %', 'id': 'cvr'},
+            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
             {'name': 'CTR %', 'id': 'ctr'},
             {'name': 'CPA', 'id': 'cpa'},
             {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
@@ -799,19 +811,32 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': '', 'id': 'row_id', 'hidden': True}
         ],
         **TABLE_STYLE,
+        style_cell_conditional=[
+            {'if': {'column_id': 'contextuality'}, 'maxWidth': '30%', 'whiteSpace': 'normal'},
+        ],
         style_data_conditional=[
-            {
-                'if': {'filter_query': '{row_type} = "detail"'},
-                'backgroundColor': '#1a1a1a',
-                'borderLeft': '3px solid #17a2b8',
-                'fontStyle': 'italic'
-            },
-            {
-                'if': {'filter_query': '{row_type} = "main"'},
-                'cursor': 'pointer'
-            }
-        ]
-    ),
+            {'if': {'filter_query': '{row_type} = "detail"'}, 'backgroundColor': '#1a1a1a', 
+             'borderLeft': '3px solid #17a2b8', 'fontStyle': 'italic'},
+            {'if': {'filter_query': '{row_type} = "main"'}, 'cursor': 'pointer'},
+            {'if': {'filter_query': '{cvr} > {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': '{cvr} < {avg_cvr}', 'column_id': 'cvr'}, 
+             'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': '{ctr} > {avg_ctr}', 'column_id': 'ctr'}, 
+             'color': '#00ff00'},
+            {'if': {'filter_query': '{ctr} < {avg_ctr}', 'column_id': 'ctr'}, 
+         'color': '#ff0000'},
+            {'if': {'filter_query': '{cpa} < {avg_cpa}', 'column_id': 'cpa'}, 
+         'color': '#00ff00'},
+            {'if': {'filter_query': '{cpa} > {avg_cpa}', 'column_id': 'cpa'}, 
+         'color': '#ff0000'},
+            {'if': {'filter_query': '{mnet_roas} > {avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+         'color': '#00ff00'},
+            {'if': {'filter_query': '{mnet_roas} < {avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+         'color': '#ff0000'}
+        ],
+        tooltip_data=[],
+        tooltip_duration=None),
     dcc.Store(id='expanded_rows', data=[]),
     html.Hr(style={'borderColor': '#444'}),
     # BUBBLE CHARTS - Sprig URL & Domain (Full) - 2x2
@@ -944,9 +969,7 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
      Output('treemap_cvr_ctr', 'figure'),
      Output('treemap_roas_cpa', 'figure'),
      Output('dynamic_concepts_table', 'data'),
-     Output('multi_concepts_table', 'data'),
-     Output('best_urls', 'data'),
-     Output('worst_urls', 'data'),
+     Output('dynamic_urls_table', 'data'),  # Changed from best_urls, worst_urls, multi_concepts_table
      Output('contextuality_table', 'data'),
      Output('treemap_url_top_cvr_ctr', 'figure'),
      Output('treemap_url_top_roas_cpa', 'figure'),
@@ -1027,12 +1050,13 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, spr
                                 'ROAS vs CPA - Top 10 by Clicks', 
                                 show_cvr_ctr=False, top_n=10, col_name='concepts', avg_metrics=avg_metrics)
         
-        # Dynamic concepts table based on user selection
+    # Dynamic concepts table based on user selection
+        #
+        # Dynamic concepts table
         if table_type == 'best':
             concepts_candidates = g_concept[(g_concept['clicks'] >= 10) & (g_concept['cvr'] > 0)].copy()
             if len(concepts_candidates) == 0:
                 concepts_candidates = g_concept[g_concept['cvr'] > 0].copy()
-            
             if len(concepts_candidates) > 0:
                 if table_sort == 'cvr':
                     concepts_candidates['score'] = concepts_candidates['cvr'] * np.log1p(concepts_candidates['clicks'])
@@ -1041,39 +1065,74 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, spr
                     dynamic_concepts = concepts_candidates.nlargest(table_count, table_sort)
             else:
                 dynamic_concepts = pd.DataFrame()
-        else:  # worst
+        else:
             concepts_candidates = g_concept[(g_concept['clicks'] >= 10) & (g_concept['cvr'] <= 0.6)].copy()
             if len(concepts_candidates) > 0:
                 dynamic_concepts = concepts_candidates.nlargest(table_count, 'clicks')
             else:
                 dynamic_concepts = pd.DataFrame()
 
-        # Format dynamic concepts table
         if len(dynamic_concepts) > 0:
-            dynamic_concepts_display = dynamic_concepts[['concepts', 'clicks', 'conversions', 'cvr', 'ctr', 'cpa', 'mnet_roas']].round(2).to_dict('records')
+            dynamic_concepts['avg_cvr'] = agg_cvr
+            dynamic_concepts['row_type'] = 'main'
+            dynamic_concepts['parent_concept'] = ''
+            dynamic_concepts_display = dynamic_concepts[['concepts', 'clicks', 'conversions', 'cvr', 'avg_cvr', 
+                                                   'ctr', 'cpa', 'mnet_roas', 'row_type', 'parent_concept']].round(2).to_dict('records')
         else:
             dynamic_concepts_display = []
 
-        # Multi-word concepts table
-        g_concept_multi = weighted_aggregate(d_concepts_multi, 'concepts_multi').rename(columns={'concepts_multi': 'concepts'})
-        if len(g_concept_multi) > 0:
-            multi_concepts_display = g_concept_multi.nlargest(10, 'clicks')[['concepts', 'clicks', 'cvr', 'ctr']].round(2).to_dict('records')
+# Dynamic URLs table (similar logic)
+        if url_table_type == 'best':
+            url_candidates = g_url[(g_url['clicks'] >= 10) & (g_url['cvr'] > 0)].copy()
+            if len(url_candidates) == 0:
+                url_candidates = g_url[g_url['cvr'] > 0].copy()
+            if len(url_candidates) > 0:
+                if url_table_sort == 'cvr':
+                    url_candidates['score'] = url_candidates['cvr'] * np.log1p(url_candidates['clicks'])
+                    dynamic_urls = url_candidates.sort_values('score', ascending=False).head(url_table_count)
+                else:
+                    dynamic_urls = url_candidates.nlargest(url_table_count, url_table_sort)
+            else:
+                dynamic_urls = pd.DataFrame()
         else:
-            multi_concepts_display = []
+            url_candidates = g_url[(g_url['clicks'] >= 10) & (g_url['cvr'] <= 0.6)].copy()
+            if len(url_candidates) > 0:
+                dynamic_urls = url_candidates.nlargest(url_table_count, 'clicks')
+            else:
+                dynamic_urls = pd.DataFrame()
+
+        if len(dynamic_urls) > 0:
+            dynamic_urls['avg_cvr'] = agg_cvr
+            dynamic_urls_display = dynamic_urls[['url', 'clicks', 'conversions', 'cvr', 'avg_cvr', 
+                                          'ctr', 'cpa', 'mnet_roas']].round(2).to_dict('records')
+        else:
+            dynamic_urls_display = []
+        # Multi-word concepts table
+#        g_concept_multi = weighted_aggregate(d_concepts_multi, 'concepts_multi').rename(columns={'concepts_multi': 'concepts'})
+#       if len(g_concept_multi) > 0:
+#            multi_concepts_display = g_concept_multi.nlargest(10, 'clicks')[['concepts', 'clicks', 'cvr', 'ctr']].round(2).to_dict('records')
+#        else:
+ #           multi_concepts_display = []
 
         # Best/Worst URLs
-        best_urls, worst_urls = get_best_worst_items(g_url, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, 'url', 5)
+     
         
         # Contextuality table
         if len(g_contextuality) > 0:
             ctx_table_data = g_contextuality.copy()
+            ctx_table_data['avg_cvr'] = agg_cvr
+            ctx_table_data['avg_ctr'] = agg_ctr
+            ctx_table_data['avg_cpa'] = agg_cpa
+            ctx_table_data['avg_mnet_roas'] = agg_mnet_roas
             ctx_table_data['contextuality'] = '▶ ' + ctx_table_data['contextuality'].astype(str)
             ctx_table_data['row_type'] = 'main'
             ctx_table_data['row_id'] = range(len(ctx_table_data))
-            ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 'cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas', 'row_type', 'row_id']].round(2).to_dict('records')
+            ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 
+                                      'cvr', 'avg_cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas', 
+                                      'row_type', 'row_id']].round(2).to_dict('records')
         else:
             ctx_table_data = []
-        
+
         # Sprig treemaps
         tree_url_top_cvr_ctr = create_treemap(g_url_top, 'cvr', 'ctr', 'Sprig URL Top: CVR vs CTR', True, 10, 'sprig_url_top', avg_metrics)
         tree_url_top_roas_cpa = create_treemap(g_url_top, 'mnet_roas', 'cpa', 'Sprig URL Top: ROAS vs CPA', False, 10, 'sprig_url_top', avg_metrics)
@@ -1087,8 +1146,7 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, spr
         return (
             stats_display,
             tree_cvr_ctr, tree_roas_cpa,
-            dynamic_concepts_display, multi_concepts_display,
-            best_urls, worst_urls,
+            dynamic_concepts_display, dynamic_urls_display,  # Changed
             ctx_table_data,
             tree_url_top_cvr_ctr, tree_url_top_roas_cpa,
             tree_dom_top_cvr_ctr, tree_dom_top_roas_cpa,
@@ -1373,4 +1431,5 @@ def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, 
                 new_data.append(row)
         
         return new_data, expanded_rows
+
 
