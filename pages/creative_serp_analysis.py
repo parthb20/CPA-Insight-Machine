@@ -135,7 +135,46 @@ try:
         'Adv ROAS': 'adv_roas'
     }
     ad_df = ad_df.rename(columns={c: AD_COL_MAP[c] for c in ad_df.columns if c in AD_COL_MAP})
-    
+    def create_char_bucket(count):
+        if pd.isna(count):
+            return 'Unknown'
+        count = int(count)
+        if count <= 0:
+            return '0'
+        elif count <= 5:
+            return '1-5'
+        elif count <= 10:
+            return '6-10'
+        elif count <= 15:
+            return '11-15'
+        elif count <= 20:
+            return '16-20'
+        elif count <= 25:
+            return '21-25'
+        elif count <= 30:
+            return '26-30'
+        elif count <= 35:
+            return '31-35'
+        elif count <= 40:
+            return '36-40'
+        elif count <= 45:
+            return '41-45'
+        elif count <= 50:
+            return '46-50'
+        elif count <= 60:
+            return '51-60'
+        elif count <= 70:
+            return '61-70'
+        elif count <= 80:
+            return '71-80'
+        elif count <= 90:
+            return '81-90'
+        elif count <= 100:
+            return '91-100'
+        else:
+            return '100+'
+    if 'character_count' in ad_df.columns:
+        ad_df['character_count'] = ad_df['character_count'].apply(create_char_bucket)
     # Convert numeric columns
     for c in ['impressions','clicks','conversions','adv_cost','max_cost','actual_adv_payout']:
         ad_df[c] = pd.to_numeric(ad_df.get(c, 0), errors='coerce').fillna(0)
@@ -290,53 +329,36 @@ layout = dbc.Container(
 
                                         html.Hr(style={'borderColor': '#444'}),
 
-                                        # Creative Tables
                                         html.H4("Creative Performance", style={'color': '#5dade2'}),
+                                        html.P("📊 Analyze creative templates by performance metrics", 
+                                               style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '15px'}),
                                         dbc.Row([
                                             dbc.Col([
-                                                html.Label("Best/Worst:", style={'color': '#aaa', 'fontSize': '12px'}),
-                                                dcc.Dropdown(
-                                                    id='creative_best_worst',
-                                                    options=[
-                                                        {'label': 'Best', 'value': 'best'},
-                                                        {'label': 'Worst', 'value': 'worst'}
-                                                    ],
-                                                    value='best',
-                                                    clearable=False,
-                                                    style={'color': 'black', 'fontSize': '12px'}
-                                                )
+                                                html.Label("Performance Type:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='creative_table_type', value='best',
+                                                             options=[{'label': '✓ Best Performers', 'value': 'best'},
+                                                                      {'label': '✗ Worst Performers', 'value': 'worst'}],
+                                                             style={'color': 'black'})
+                                            ], width=3),
+                                            dbc.Col([
+                                                html.Label("Number of Items:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='creative_table_count', value=5,
+                                                             options=[{'label': str(x), 'value': x} for x in [5, 10, 15, 20]],
+                                                             style={'color': 'black'})
                                             ], width=2),
                                             dbc.Col([
-                                                html.Label("Count:", style={'color': '#aaa', 'fontSize': '12px'}),
-                                                dcc.Input(
-                                                    id='creative_count',
-                                                    type='number',
-                                                    value=5,
-                                                    min=1,
-                                                    max=50,
-                                                    style={'width': '100%', 'color': 'black'}
-                                                )
-                                            ], width=2),
-                                            dbc.Col([
-                                                html.Label("Sort By:", style={'color': '#aaa', 'fontSize': '12px'}),
-                                                dcc.Dropdown(
-                                                    id='creative_sort_metric',
-                                                    options=[
-                                                        {'label': 'CVR', 'value': 'cvr'},
-                                                        {'label': 'CTR', 'value': 'ctr'},
-                                                        {'label': 'CPA', 'value': 'cpa'},
-                                                        {'label': 'Mnet ROAS', 'value': 'mnet_roas'},
-                                                        {'label': 'Adv ROAS', 'value': 'adv_roas'},
-                                                        {'label': 'Conversions', 'value': 'conversions'}
-                                                    ],
-                                                    value='cvr',
-                                                    clearable=False,
-                                                    style={'color': 'black', 'fontSize': '12px'}
-                                                )
-                                            ], width=3)
+                                                html.Label("Sort By:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='creative_table_sort', value='cvr',
+                                                             options=[{'label': 'CVR', 'value': 'cvr'},
+                                                                      {'label': 'CTR', 'value': 'ctr'},
+                                                                      {'label': 'Clicks', 'value': 'clicks'},
+                                                                      {'label': 'CPA', 'value': 'cpa'},
+                                                                      {'label': 'ROAS', 'value': 'mnet_roas'}],
+                                                             style={'color': 'black'})
+                                            ], width=2)
                                         ], style={'marginBottom': '15px'}),
                                         dash_table.DataTable(
-                                            id='creative_table',
+                                            id='dynamic_creatives',
                                             columns=[
                                                 {'name': 'Creative', 'id': 'creative'},
                                                 {'name': 'Clicks', 'id': 'clicks'},
@@ -355,14 +377,41 @@ layout = dbc.Container(
                                             style_data=TABLE_STYLE['style_data'],
                                             style_data_conditional=[]
                                         ),
-
+                                        
+                                        # Creative Tables
                                         html.Hr(style={'borderColor': '#444'}),
 
                                 # SERP Tables
                                         html.H4("SERP Performance", style={'color': '#5dade2', 'marginTop': '20px'}),
-                                        html.H5("Best 5 SERPs", style={'color': '#00ff00'}),
+                                        html.P("📄 Analyze SERP templates by performance metrics", 
+                                               style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '15px'}),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                html.Label("Performance Type:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='serp_table_type', value='best',
+                                                             options=[{'label': '✓ Best Performers', 'value': 'best'},
+                                                                      {'label': '✗ Worst Performers', 'value': 'worst'}],
+                                                             style={'color': 'black'})
+                                            ], width=3),
+                                            dbc.Col([
+                                                html.Label("Number of Items:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='serp_table_count', value=5,
+                                                             options=[{'label': str(x), 'value': x} for x in [5, 10, 15, 20]],
+                                                             style={'color': 'black'})
+                                            ], width=2),
+                                            dbc.Col([
+                                                html.Label("Sort By:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='serp_table_sort', value='cvr',
+                                                             options=[{'label': 'CVR', 'value': 'cvr'},
+                                                                      {'label': 'CTR', 'value': 'ctr'},
+                                                                      {'label': 'Clicks', 'value': 'clicks'},
+                                                                      {'label': 'CPA', 'value': 'cpa'},
+                                                                      {'label': 'ROAS', 'value': 'mnet_roas'}],
+                                                             style={'color': 'black'})
+                                            ], width=2)
+                                        ], style={'marginBottom': '15px'}),
                                         dash_table.DataTable(
-                                            id='best_serps',
+                                            id='dynamic_serps',
                                             columns=[
                                                 {'name': 'SERP', 'id': 'serp'},
                                                 {'name': 'Clicks', 'id': 'clicks'},
@@ -375,80 +424,65 @@ layout = dbc.Container(
                                                 {'name': 'Adv Cost', 'id': 'adv_cost'},
                                                 {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
                                                 {'name': 'Max Cost', 'id': 'max_cost'}
-                                                ],
+                                            ],
                                             style_cell=TABLE_STYLE['style_cell'],
                                             style_header=TABLE_STYLE['style_header'],
                                             style_data=TABLE_STYLE['style_data'],
                                             style_data_conditional=[]
-                                            ),
-                                        html.H5("Worst 5 SERPs", style={'color': '#ff0000'}),
-                                        dash_table.DataTable(
-                                            id='worst_serps',
-                                            columns=[
-                                                {'name': 'SERP', 'id': 'serp'},
-                                                {'name': 'Clicks', 'id': 'clicks'},
-                                                {'name': 'Conv', 'id': 'conversions'},
-                                                {'name': 'CVR %', 'id': 'cvr'},
-                                                {'name': 'CTR %', 'id': 'ctr'},
-                                                {'name': 'CPA', 'id': 'cpa'},
-                                                {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-                                                {'name': 'Adv ROAS', 'id': 'adv_roas'},
-                                                {'name': 'Adv Cost', 'id': 'adv_cost'},
-                                                {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
-                                                {'name': 'Max Cost', 'id': 'max_cost'}
-                                                ],
-                                            style_cell=TABLE_STYLE['style_cell'],
-                                            style_header=TABLE_STYLE['style_header'],
-                                            style_data=TABLE_STYLE['style_data'],
-                                            style_data_conditional=[]
-                                            ),
+                                        ),
                                         html.Hr(style={'borderColor': '#444'}),
-                                # Creative-SERP Pair Tables
-                                       html.H4("Creative-SERP Pair Performance", style={'color': '#5dade2', 'marginTop': '20px'}),
-                                       html.H5("Best 5 Pairs", style={'color': '#00ff00'}),
-                                       dash_table.DataTable(
-                                           id='best_pairs',
-                                           columns=[
-                                               {'name': 'Creative', 'id': 'creative'},
-                                               {'name': 'SERP', 'id': 'serp'},
-                                               {'name': 'Clicks', 'id': 'clicks'},
-                                               {'name': 'Conv', 'id': 'conversions'},
-                                               {'name': 'CVR %', 'id': 'cvr'},
-                                               {'name': 'CTR %', 'id': 'ctr'},
-                                               {'name': 'CPA', 'id': 'cpa'},
-                                               {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-                                               {'name': 'Adv ROAS', 'id': 'adv_roas'},
-                                               {'name': 'Adv Cost', 'id': 'adv_cost'},
-                                               {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
-                                               {'name': 'Max Cost', 'id': 'max_cost'}
-                                               ],
-                                           style_cell=TABLE_STYLE['style_cell'],
-                                           style_header=TABLE_STYLE['style_header'],
-                                           style_data=TABLE_STYLE['style_data'],
-                                           style_data_conditional=[]
-                                           ),
-                                       html.H5("Worst 5 Pairs", style={'color': '#ff0000'}),
-                                       dash_table.DataTable(
-                                           id='worst_pairs',
-                                           columns=[
-                                               {'name': 'Creative', 'id': 'creative'},
-                                               {'name': 'SERP', 'id': 'serp'},
-                                               {'name': 'Clicks', 'id': 'clicks'},
-                                               {'name': 'Conv', 'id': 'conversions'},
-                                               {'name': 'CVR %', 'id': 'cvr'},
-                                               {'name': 'CTR %', 'id': 'ctr'},
-                                               {'name': 'CPA', 'id': 'cpa'},
-                                               {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-                                               {'name': 'Adv ROAS', 'id': 'adv_roas'},
-                                               {'name': 'Adv Cost', 'id': 'adv_cost'},
-                                               {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
-                                               {'name': 'Max Cost', 'id': 'max_cost'}
-                                               ],
-                                           style_cell=TABLE_STYLE['style_cell'],
-                                           style_header=TABLE_STYLE['style_header'],
-                                           style_data=TABLE_STYLE['style_data'],
-                                           style_data_conditional=[]
-                                    ),
+                                        html.H4("Creative-SERP Pair Performance", style={'color': '#5dade2', 'marginTop': '20px'}),
+                                        html.P("🔗 Analyze creative-SERP combinations", 
+                                               style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '15px'}),
+                                        dbc.Row([
+                                            dbc.Col([
+                                                html.Label("Performance Type:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='pair_table_type', value='best',
+                                                             options=[{'label': '✓ Best Performers', 'value': 'best'},
+                                                                      {'label': '✗ Worst Performers', 'value': 'worst'}],
+                                                             style={'color': 'black'})
+                                            ], width=3),
+                                            dbc.Col([
+                                                html.Label("Number of Items:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='pair_table_count', value=5,
+                                                             options=[{'label': str(x), 'value': x} for x in [5, 10, 15, 20]],
+                                                             style={'color': 'black'})
+                                            ], width=2),
+                                            dbc.Col([
+                                                html.Label("Sort By:", style={'color': 'white'}),
+                                                dcc.Dropdown(id='pair_table_sort', value='cvr',
+                                                             options=[{'label': 'CVR', 'value': 'cvr'},
+                                                                      {'label': 'CTR', 'value': 'ctr'},
+                                                                      {'label': 'Clicks', 'value': 'clicks'},
+                                                                      {'label': 'CPA', 'value': 'cpa'},
+                                                                      {'label': 'ROAS', 'value': 'mnet_roas'}],
+                                                             style={'color': 'black'})
+                                            ], width=2)
+                                        ], style={'marginBottom': '15px'}),
+                                        dash_table.DataTable(
+                                            id='dynamic_pairs',
+                                            columns=[
+                                                {'name': 'Creative', 'id': 'creative'},
+                                                {'name': 'SERP', 'id': 'serp'},
+                                                {'name': 'Clicks', 'id': 'clicks'},
+                                                {'name': 'Conv', 'id': 'conversions'},
+                                                {'name': 'CVR %', 'id': 'cvr'},
+                                                {'name': 'CTR %', 'id': 'ctr'},
+                                                {'name': 'CPA', 'id': 'cpa'},
+                                                {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
+                                                {'name': 'Adv ROAS', 'id': 'adv_roas'},
+                                                {'name': 'Adv Cost', 'id': 'adv_cost'},
+                                                {'name': 'Adv Payout', 'id': 'actual_adv_payout'},
+                                                {'name': 'Max Cost', 'id': 'max_cost'}
+                                                ],
+                                            style_cell=TABLE_STYLE['style_cell'],
+                                            style_header=TABLE_STYLE['style_header'],
+                                            style_data=TABLE_STYLE['style_data'],
+                                            style_data_conditional=[]
+                                            ),
+                                        # Creative-SERP Pair Tables
+                                       
+                                        
                                         html.Hr(style={'borderColor': '#444'}),
                                         
                                         # Creative & SERP Attributes Section
@@ -504,23 +538,29 @@ def update_filters(advs, camp_types):
 # Update Creative & SERP Analysis
 @callback(
     [Output('cs_agg_stats', 'children'),
-     Output('best_creatives', 'data'),
-     Output('best_creatives', 'style_data_conditional'),
-     Output('worst_creatives', 'data'),
-     Output('worst_creatives', 'style_data_conditional'),
-     Output('best_serps', 'data'),
-     Output('best_serps', 'style_data_conditional'),
-     Output('worst_serps', 'data'),
-     Output('worst_serps', 'style_data_conditional'),
-     Output('best_pairs', 'data'),
-     Output('best_pairs', 'style_data_conditional'),
-     Output('worst_pairs', 'data'),
-     Output('worst_pairs', 'style_data_conditional')],
+     Output('dynamic_creatives', 'data'),
+     Output('dynamic_creatives', 'style_data_conditional'),
+     Output('dynamic_serps', 'data'),
+     Output('dynamic_serps', 'style_data_conditional'),
+     Output('dynamic_pairs', 'data'),
+     Output('dynamic_pairs', 'style_data_conditional')],
     [Input('cs_adv_dd', 'value'),
      Input('cs_camp_type_dd', 'value'),
-     Input('cs_camp_dd', 'value')]
+     Input('cs_camp_dd', 'value'),
+     Input('creative_table_type', 'value'),
+     Input('creative_table_count', 'value'),
+     Input('creative_table_sort', 'value'),
+     Input('serp_table_type', 'value'),
+     Input('serp_table_count', 'value'),
+     Input('serp_table_sort', 'value'),
+     Input('pair_table_type', 'value'),
+     Input('pair_table_count', 'value'),
+     Input('pair_table_sort', 'value')]
 )
-def update_creative_serp(advs, camp_types, camps):
+def update_creative_serp(advs, camp_types, camps, 
+                        creative_type, creative_count, creative_sort,
+                        serp_type, serp_count, serp_sort,
+                        pair_type, pair_count, pair_sort):
     # Filter data
     d = df.copy()
     if advs:
@@ -530,21 +570,17 @@ def update_creative_serp(advs, camp_types, camps):
     if camps:
         d = d[d['campaign'].isin(camps)]
     
-    avg_cvr = d['cvr'].mean()
-
     # Calculate aggregated stats
     total_clicks = d['clicks'].sum()
     total_impressions = d['impressions'].sum()
     total_conversions = d['conversions'].sum()
     total_adv_cost = d['adv_cost'].sum()
     total_max_cost = d['max_cost'].sum()
-    total_adv_value = d['adv_value'].sum()
+    total_actual_adv_payout = d['actual_adv_payout'].sum()
     
     agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
     agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
     agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
-    agg_roas = (total_adv_value / total_max_cost) if total_max_cost > 0 else 0
-    total_actual_adv_payout = d['actual_adv_payout'].sum()
     agg_mnet_roas = (total_actual_adv_payout / total_max_cost) if total_max_cost > 0 else 0
     agg_adv_roas = (total_actual_adv_payout / total_adv_cost) if total_adv_cost > 0 else 0
     
@@ -563,62 +599,23 @@ def update_creative_serp(advs, camp_types, camps):
                 dbc.Col([html.Strong("CPA: ", style={'color': '#aaa'}), 
                         html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00', 'fontSize': '18px'})], width=2),
                 dbc.Col([html.Strong("ROAS: ", style={'color': '#aaa'}), 
-                        html.Span(f"{agg_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})], width=2)
+                        html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})], width=2)
             ])
         ])
     ], style={'backgroundColor': '#222', 'border': '1px solid #444'})
-    # Helper function for color coding
-    def add_color_conditional(data_list, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa):
-        """Add style_data_conditional for metrics vs aggregates"""
-        if not data_list:
-            return data_list
-        
-        conditional = [
-            # CVR - green if above average, red if below
-            {'if': {'filter_query': f'{{cvr}} > {agg_cvr}', 'column_id': 'cvr'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cvr}} <= {agg_cvr}', 'column_id': 'cvr'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CTR - green if above average, red if below
-            {'if': {'filter_query': f'{{ctr}} > {agg_ctr}', 'column_id': 'ctr'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{ctr}} <= {agg_ctr}', 'column_id': 'ctr'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # CPA - green if BELOW average (lower is better), red if above
-            {'if': {'filter_query': f'{{cpa}} < {agg_cpa}', 'column_id': 'cpa'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{cpa}} >= {agg_cpa}', 'column_id': 'cpa'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Mnet ROAS - green if above average, red if below
-            {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{mnet_roas}} <= {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
-            
-            # Adv ROAS - green if above average, red if below
-            {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas}', 'column_id': 'adv_roas'}, 
-             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'filter_query': f'{{adv_roas}} <= {agg_adv_roas}', 'column_id': 'adv_roas'}, 
-             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
-        ]
-        
-        return data_list, conditional
-    # Helper function for scoring
-    def get_best_worst(d, group_col, min_clicks=3):
+    
+    def get_dynamic_table(d, group_col, table_type, table_count, table_sort, min_clicks=3):
+        """Generate dynamic table based on filters"""
         g = d.groupby(group_col, dropna=True).agg(
             clicks=('clicks','sum'),
             impressions=('impressions','sum'),
             conversions=('conversions','sum'),
             adv_cost=('adv_cost','sum'),
             max_cost=('max_cost','sum'),
-            adv_value=('adv_value','sum'),
-            actual_adv_payout=('actual_adv_payout','sum'),  # ADD
-            mnet_roas=('mnet_roas','mean'),  # ADD - use mean for ROAS
-            adv_roas=('adv_roas','mean')  # ADD
-            ).reset_index()
+            actual_adv_payout=('actual_adv_payout','sum'),
+            mnet_roas=('mnet_roas','mean'),
+            adv_roas=('adv_roas','mean')
+        ).reset_index()
         
         g['ctr'] = np.where(g['impressions']>0, 100*g['clicks']/g['impressions'], np.nan)
         g['cvr'] = np.where(g['clicks']>0, 100*g['conversions']/g['clicks'], np.nan)
@@ -626,66 +623,77 @@ def update_creative_serp(advs, camp_types, camps):
         
         g = g.dropna(subset=['cvr'])
         
-        # BEST
-        best_candidates = g[(g['clicks'] >= min_clicks) & (g['cvr'] > 0)].copy()
-        if len(best_candidates) > 0:
-            best_candidates['score'] = best_candidates['cvr'] * np.log1p(best_candidates['clicks'])
-            best_df = best_candidates.sort_values('score', ascending=False).head(5)
-            best_ids = set(best_df[group_col].tolist())
-        else:
-            best_df = pd.DataFrame()
-            best_ids = set()
+        if table_type == 'best':
+            candidates = g[(g['clicks'] >= min_clicks) & (g['cvr'] > 0)].copy()
+            if len(candidates) == 0:
+                candidates = g[g['cvr'] > 0].copy()
+            
+            if len(candidates) > 0:
+                if table_sort == 'cvr':
+                    candidates['score'] = candidates['cvr'] * np.log1p(candidates['clicks'])
+                    result_df = candidates.sort_values('score', ascending=False).head(table_count)
+                else:
+                    result_df = candidates.nlargest(table_count, table_sort)
+            else:
+                result_df = pd.DataFrame()
+        else:  # worst
+            candidates = g[(g['clicks'] >= min_clicks) & (g['cvr'] <= 0.6)].copy()
+            if len(candidates) > 0:
+                result_df = candidates.nlargest(table_count, 'clicks')
+            else:
+                result_df = pd.DataFrame()
         
-        # WORST
-        worst_candidates = g[
-            (g['clicks'] >= min_clicks) & 
-            (g['cvr'] <= 0.6) &
-            (~g[group_col].isin(best_ids))
-        ].copy()
-        if len(worst_candidates) > 0:
-            worst_df = worst_candidates.sort_values('clicks', ascending=False).head(5)
-        else:
-            worst_df = pd.DataFrame()
-        
-        return best_df.round(2).to_dict('records'), worst_df.round(2).to_dict('records')
+        return result_df.round(2).to_dict('records')
+    
+    def add_color_conditional(agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa):
+        """Generate conditional styling"""
+        return [
+            {'if': {'filter_query': f'{{cvr}} > {agg_cvr}', 'column_id': 'cvr'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cvr}} <= {agg_cvr}', 'column_id': 'cvr'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{ctr}} > {agg_ctr}', 'column_id': 'ctr'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{ctr}} <= {agg_ctr}', 'column_id': 'ctr'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cpa}} < {agg_cpa}', 'column_id': 'cpa'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cpa}} >= {agg_cpa}', 'column_id': 'cpa'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{mnet_roas}} > {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{mnet_roas}} <= {agg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{adv_roas}} > {agg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{adv_roas}} <= {agg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
+        ]
     
     # Get results
-    best_creatives, worst_creatives = get_best_worst(d, 'creative', min_clicks=3)
-    best_serps, worst_serps = get_best_worst(d, 'serp', min_clicks=3)
+    dynamic_creatives = get_dynamic_table(d, 'creative', creative_type, creative_count, creative_sort)
+    dynamic_serps = get_dynamic_table(d, 'serp', serp_type, serp_count, serp_sort)
     
     # For pairs
     d['pair'] = d['creative'].astype(str) + ' | ' + d['serp'].astype(str)
-    best_pairs_raw, worst_pairs_raw = get_best_worst(d, 'pair', min_clicks=3)
+    dynamic_pairs_raw = get_dynamic_table(d, 'pair', pair_type, pair_count, pair_sort)
     
     # Split pairs back
-    def split_pairs(data):
-        for item in data:
-            if 'pair' in item:
-                parts = item['pair'].split(' | ')
-                item['creative'] = parts[0]
-                item['serp'] = parts[1] if len(parts) > 1 else ''
-                del item['pair']
-        return data
+    dynamic_pairs = []
+    for item in dynamic_pairs_raw:
+        if 'pair' in item:
+            parts = item['pair'].split(' | ')
+            item['creative'] = parts[0]
+            item['serp'] = parts[1] if len(parts) > 1 else ''
+            del item['pair']
+        dynamic_pairs.append(item)
     
-    best_pairs = split_pairs(best_pairs_raw)
-    worst_pairs = split_pairs(worst_pairs_raw)
+    conditional = add_color_conditional(agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
     
-    # Apply color coding to all tables
-    best_creatives, bc_conditional = add_color_conditional(best_creatives, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
-    worst_creatives, wc_conditional = add_color_conditional(worst_creatives, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
-    best_serps, bs_conditional = add_color_conditional(best_serps, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
-    worst_serps, ws_conditional = add_color_conditional(worst_serps, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
-    best_pairs, bp_conditional = add_color_conditional(best_pairs, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
-    worst_pairs, wp_conditional = add_color_conditional(worst_pairs, agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
     return (stats_display, 
-            best_creatives, bc_conditional,
-            worst_creatives, wc_conditional,
-            best_serps, bs_conditional,
-            worst_serps, ws_conditional,
-            best_pairs, bp_conditional,
-            worst_pairs, wp_conditional)
-
-# Update Ad Title Analysis Content
+            dynamic_creatives, conditional,
+            dynamic_serps, conditional,
+            dynamic_pairs, conditional)
 # Update Creative & SERP Attributes Analysis
 @callback(
     Output('cs_attributes_content', 'children'),
@@ -727,7 +735,15 @@ def update_cs_attributes(advs, camp_types, camps):
         if d[attr].isna().all() or len(d[attr].dropna()) == 0:
             continue
         
-        attr_display_name = attr.replace('_', ' ').title()
+        # Custom display names
+        ATTR_DISPLAY_NAMES = {
+            'cta_present': 'Text CTA Present?',
+            'bg_color': 'Background Color',
+            'font_color': 'Main Font Color',
+            'cta_color': 'CTA Color',
+            'logo_present': 'Adv Logo Present?'
+            }
+        attr_display_name = ATTR_DISPLAY_NAMES.get(attr, attr.replace('_', ' ').title())
         
         # Aggregate by attribute
         agg_data = d.groupby(attr, dropna=True).agg(
@@ -1099,25 +1115,52 @@ def update_ad_title_content(advs, camp_types, camps):
         agg_data['mnet_roas'] = np.where(agg_data['max_cost']>0, agg_data['actual_adv_payout']/agg_data['max_cost'], 0)
         agg_data['adv_roas'] = np.where(agg_data['adv_cost']>0, agg_data['actual_adv_payout']/agg_data['adv_cost'], 0)
         
-        # Format numbers
-        agg_data['impressions'] = agg_data['impressions'].apply(lambda x: f"{int(x):,}")
-        agg_data['clicks'] = agg_data['clicks'].apply(lambda x: f"{int(x):,}")
-        agg_data['ctr'] = agg_data['ctr'].apply(lambda x: f"{x:.2f}%")
-        agg_data['cvr'] = agg_data['cvr'].apply(lambda x: f"{x:.2f}%")
-        agg_data['cpa'] = agg_data['cpa'].apply(lambda x: f"${x:.2f}")
-        agg_data['mnet_roas'] = agg_data['mnet_roas'].apply(lambda x: f"{x:.2f}")
-        agg_data['adv_roas'] = agg_data['adv_roas'].apply(lambda x: f"{x:.2f}")
-        agg_data['adv_cost'] = agg_data['adv_cost'].apply(lambda x: f"${x:.2f}")
-        agg_data['actual_adv_payout'] = agg_data['actual_adv_payout'].apply(lambda x: f"${x:.2f}")
-        agg_data['max_cost'] = agg_data['max_cost'].apply(lambda x: f"${x:.2f}")
+        # Calculate overall averages for this attribute
+        overall_avg_ctr = agg_data['ctr'].mean()
+        overall_avg_cpa = agg_data['cpa'].mean()
+        overall_avg_mnet_roas = agg_data['mnet_roas'].mean()
+        overall_avg_adv_roas = agg_data['adv_roas'].mean()
+        
+        # Round numbers (don't format yet - need numeric for conditional styling)
+        agg_data = agg_data.round(2)
         
         # Create table
         table_id = f'table_{attr}'
         drill_down_id = f'drilldown_{attr}'
-        
+        style_conditional = [
+            {'if': {'filter_query': f'{{cvr}} > {overall_avg_cvr}', 'column_id': 'cvr'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cvr}} <= {overall_avg_cvr}', 'column_id': 'cvr'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{ctr}} > {overall_avg_ctr}', 'column_id': 'ctr'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{ctr}} <= {overall_avg_ctr}', 'column_id': 'ctr'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cpa}} < {overall_avg_cpa}', 'column_id': 'cpa'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{cpa}} >= {overall_avg_cpa}', 'column_id': 'cpa'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{mnet_roas}} > {overall_avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{mnet_roas}} <= {overall_avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{adv_roas}} > {overall_avg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'backgroundColor': '#1a4d2e', 'color': '#00ff00', 'fontWeight': 'bold'},
+            {'if': {'filter_query': f'{{adv_roas}} <= {overall_avg_adv_roas}', 'column_id': 'adv_roas'}, 
+             'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
+        ]
         attribute_sections.append(
             html.Div([
                 html.H5(f"{attr_display_name} Performance", style={'color': '#5dade2', 'marginTop': '30px'}),
+                html.P([
+                    f"Category Averages: ",
+                    html.Span(f"CVR: {overall_avg_cvr:.2f}% ", style={'color': '#ffcc00'}),
+                    html.Span(f"CTR: {overall_avg_ctr:.2f}% ", style={'color': '#ffcc00'}),
+                    html.Span(f"CPA: ${overall_avg_cpa:.2f} ", style={'color': '#ffcc00'}),
+                    html.Span(f"Mnet ROAS: {overall_avg_mnet_roas:.2f} ", style={'color': '#ffcc00'}),
+                    html.Span(f"Adv ROAS: {overall_avg_adv_roas:.2f}", style={'color': '#ffcc00'})
+                    ], style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
+
                 dash_table.DataTable(
                     id={'type': 'attr-table', 'index': attr},
                     columns=[
@@ -1152,11 +1195,11 @@ def update_ad_title_content(advs, camp_types, camps):
                         'border': '1px solid #444',
                         'color': '#17a2b8'
                         },
-                    style_data_conditional=[],
+                    style_data_conditional=style_conditional,
                     row_selectable='single',
                     selected_rows=[],
                     hidden_columns=[]
-                    ),
+                ),
                 html.Div(id={'type': 'drilldown-container', 'index': attr})
             ])
         )
@@ -1195,45 +1238,17 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
         d = d[d['campaign_type'].isin(camp_types)]
     if camps:
         d = d[d['campaign'].isin(camps)]
-
-    # Create character count buckets if needed
-    if attr == 'character_count':
-        def create_bucket(count):
-            if pd.isna(count):
-                return 'Unknown'
-            count = int(count)
-            if count <= 5:
-                return '0-5'
-            elif count <= 10:
-                return '6-10'
-            elif count <= 15:
-                return '11-15'
-            elif count <= 20:
-                return '16-20'
-            elif count <= 25:
-                return '21-25'
-            elif count <= 30:
-                return '26-30'
-            else:
-                return '31+'
-        d['character_count_bucket'] = d['character_count'].apply(create_bucket)
-        group_attr = 'character_count_bucket'
-    else:
-        group_attr = attr
-
-
     
     # Get selected value and its average
     selected_value = table_data[selected_rows[0]][attr]
-    avg_cvr = float(table_data[selected_rows[0]]['cvr'])
-    avg_ctr = float(table_data[selected_rows[0]]['ctr'])
-    avg_cpa = float(table_data[selected_rows[0]]['cpa'])
+    avg_cvr = table_data[selected_rows[0]]['cvr']
+    avg_ctr = table_data[selected_rows[0]]['ctr']
+    avg_cpa = table_data[selected_rows[0]]['cpa']
     avg_mnet_roas = float(table_data[selected_rows[0]]['mnet_roas'])
     avg_adv_roas = float(table_data[selected_rows[0]]['adv_roas'])
     
     # Filter for this attribute value
-    detail_data = d[d[group_attr] == selected_value].copy()
-
+    detail_data = d[d[attr] == selected_value].copy()
     
     # Aggregate by ad_title
     title_agg = detail_data.groupby('ad_title', dropna=True).agg(
@@ -1275,13 +1290,11 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
         {'if': {'filter_query': f'{{adv_roas}} <= {avg_adv_roas}', 'column_id': 'adv_roas'}, 
          'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
     ]
- 
-    attr_display = attr.replace('_', ' ').title()
     
     return html.Div([
         dbc.Button("Collapse", id={'type': 'collapse-btn', 'index': attr}, 
                    color="secondary", size="sm", style={'marginBottom': '10px'}),
-        html.H6(f"Ad Titles for {attr_display}: {selected_value}", 
+        html.H6(f"Ad Titles for {attr.replace('_', ' ').title()}: {selected_value}", 
                 style={'color': '#ffcc00', 'marginBottom': '10px'}),
         html.P([
             f"Category Averages: ",
@@ -1334,8 +1347,6 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
-
-
 
 
 
