@@ -61,11 +61,11 @@ import io
 import requests
 
 # File 1: Creative & SERP Data
-CREATIVE_SERP_FILE_ID = "1mGUAmrQJAxxbiiIAD39LKIKsl1IMWANz"
+CREATIVE_SERP_FILE_ID = "1BwA_h5Z5Hmo_WKTh6a4a0Jc-Ep2btgk9"
 CREATIVE_SERP_URL = f"https://drive.google.com/uc?export=download&id={CREATIVE_SERP_FILE_ID}"
 
 # File 2: Ad Title Data
-AD_TITLE_FILE_ID = "13sSmNN7f2e1FkCji6TVCA9BaGRDfneQO"
+AD_TITLE_FILE_ID = "1qD-G1W1gWT3uFiE_6u30XSGD1Vm-F5KJ"
 AD_TITLE_URL = f"https://drive.google.com/uc?export=download&id={AD_TITLE_FILE_ID}"
 
 # Load Creative & SERP data
@@ -86,7 +86,7 @@ COL_MAP = {
     'CM Serp Template (CM)': 'serp',
     'Background Color': 'bg_color',
     'Main Font Color': 'font_color',
-    'CTA Present?': 'cta_present',
+    'Text CTA Present?': 'cta_present',
     'CTA Color': 'cta_color',
     'Adv Logo Present?': 'logo_present',
     'Web Results Present?': 'web_results_present',
@@ -1286,6 +1286,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
