@@ -675,6 +675,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     ], style={'marginBottom': '15px'}),
     #
 # CONCEPT TABLE with drill-down
+    
     dash_table.DataTable(
         id='dynamic_concepts_table',
         columns=[
@@ -689,6 +690,9 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': '', 'id': 'row_type', 'hidden': True},
             {'name': '', 'id': 'parent_concept', 'hidden': True}
         ],
+        style_cell=TABLE_STYLE['style_cell'],
+        style_header=TABLE_STYLE['style_header'],
+        style_data=TABLE_STYLE['style_data'],
         style_data_conditional=[
             {'if': {'filter_query': '{cvr} > {avg_cvr}', 'column_id': 'cvr'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
@@ -698,8 +702,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
              'backgroundColor': '#1a1a1a', 'borderLeft': '3px solid #5dade2'},
             {'if': {'filter_query': '{row_type} = "main"'}, 'cursor': 'pointer'}
         ],
-        **TABLE_STYLE
-    ),
+    ),    
     dcc.Store(id='concept_expanded_rows', data=[]),
     html.Hr(style={'borderColor': '#444'}),
 
@@ -746,38 +749,22 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'CPA', 'id': 'cpa'},
             {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
         ],
+        style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
             {'if': {'column_id': 'url'}, 'maxWidth': '40%', 'whiteSpace': 'normal', 'height': 'auto'}
         ],
+        style_header=TABLE_STYLE['style_header'],
+        style_data=TABLE_STYLE['style_data'],
         style_data_conditional=[
             {'if': {'filter_query': '{cvr} > {avg_cvr}', 'column_id': 'cvr'}, 
              'color': '#00ff00', 'fontWeight': 'bold'},
             {'if': {'filter_query': '{cvr} < {avg_cvr}', 'column_id': 'cvr'}, 
              'color': '#ff0000', 'fontWeight': 'bold'}
         ],
-        **TABLE_STYLE
     ),
     html.Hr(style={'borderColor': '#444'}),
     # CONCEPT TABLES
-    dash_table.DataTable(
-        id='dynamic_concepts_table',
-        columns=[
-            {'name': 'Concept', 'id': 'concepts'},
-            {'name': 'Clicks', 'id': 'clicks'},
-            {'name': 'Conv', 'id': 'conversions'},
-            {'name': 'CVR %', 'id': 'cvr'},
-            {'name': 'CTR %', 'id': 'ctr'},
-            {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-        ],
-        style_data_conditional=[
-            {'if': {'column_id': 'cvr', 'filter_query': '{cvr} > {avg_cvr}'}, 
-             'color': '#00ff00', 'fontWeight': 'bold'},
-            {'if': {'column_id': 'cvr', 'filter_query': '{cvr} < {avg_cvr}'}, 
-             'color': '#ff0000', 'fontWeight': 'bold'},
-        ],
-        **TABLE_STYLE
-    ),
+    
     html.Hr(style={'borderColor': '#444'}),
     html.Div([
     html.Span("ℹ️ ", style={'color': '#17a2b8', 'fontSize': '14px'}),
@@ -810,10 +797,12 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': '', 'id': 'row_type', 'hidden': True},
             {'name': '', 'id': 'row_id', 'hidden': True}
         ],
-        **TABLE_STYLE,
+        style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
             {'if': {'column_id': 'contextuality'}, 'maxWidth': '30%', 'whiteSpace': 'normal'},
         ],
+        style_header=TABLE_STYLE['style_header'],
+        style_data=TABLE_STYLE['style_data'],
         style_data_conditional=[
             {'if': {'filter_query': '{row_type} = "detail"'}, 'backgroundColor': '#1a1a1a', 
              'borderLeft': '3px solid #17a2b8', 'fontStyle': 'italic'},
@@ -825,18 +814,19 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'if': {'filter_query': '{ctr} > {avg_ctr}', 'column_id': 'ctr'}, 
              'color': '#00ff00'},
             {'if': {'filter_query': '{ctr} < {avg_ctr}', 'column_id': 'ctr'}, 
-         'color': '#ff0000'},
+             'color': '#ff0000'},
             {'if': {'filter_query': '{cpa} < {avg_cpa}', 'column_id': 'cpa'}, 
-         'color': '#00ff00'},
+             'color': '#00ff00'},
             {'if': {'filter_query': '{cpa} > {avg_cpa}', 'column_id': 'cpa'}, 
-         'color': '#ff0000'},
+             'color': '#ff0000'},
             {'if': {'filter_query': '{mnet_roas} > {avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-         'color': '#00ff00'},
+             'color': '#00ff00'},
             {'if': {'filter_query': '{mnet_roas} < {avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
-         'color': '#ff0000'}
+             'color': '#ff0000'}
         ],
         tooltip_data=[],
-        tooltip_duration=None),
+        tooltip_duration=None    
+    ),
     dcc.Store(id='expanded_rows', data=[]),
     html.Hr(style={'borderColor': '#444'}),
     # BUBBLE CHARTS - Sprig URL & Domain (Full) - 2x2
@@ -985,9 +975,12 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
      Input('concept_table_type', 'value'),
      Input('concept_table_count', 'value'),
      Input('concept_table_sort', 'value'),
+     Input('url_table_type', 'value'),     # ← ADD THIS
+     Input('url_table_count', 'value'),    # ← ADD THIS
+     Input('url_table_sort', 'value'),
      Input('sprig_count','value')]
 )
-def update_all(advs, camp_types, camps, table_type, table_count, table_sort, sprig_count):    
+def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count):      
     try:
         if sprig_count is None:
             sprig_count = 5
@@ -997,12 +990,18 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, spr
             table_count = 10
         if table_sort is None:
             table_sort = 'cvr'
+        if url_table_type is None:
+            url_table_type = 'best'
+        if url_table_count is None:
+            url_table_count = 10
+        if url_table_sort is None:
+            url_table_sort = 'cvr'
         
         # Filter data ONCE
         d = filter_dataframe(df, advs, camp_types, camps)
         d_contextuality = filter_dataframe(df_contextuality, advs, camp_types, camps)
-        d_concepts_single = filter_dataframe(df_concepts_single, advs, camp_types, camps)
-        d_concepts_multi = filter_dataframe(df_concepts_multi, advs, camp_types, camps)
+        d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)  # ← FIXED
+
         
         # Early return if no data
         if len(d) == 0:
@@ -1026,7 +1025,7 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, spr
         avg_metrics = {'cvr': agg_cvr, 'ctr': agg_ctr, 'cpa': agg_cpa, 'mnet_roas': agg_mnet_roas}
         
         # Aggregate ONCE for each dimension
-        g_concept = weighted_aggregate(d_concepts_single, 'concepts_single').rename(columns={'concepts_single': 'concepts'})
+        g_concept = weighted_aggregate(d_concepts, 'concepts')  # ← FIXED - removed .rename()
         g_url = weighted_aggregate(d, 'url')
         g_contextuality = weighted_aggregate(d_contextuality, 'contextuality')
         
@@ -1272,7 +1271,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     # Filter based on the clicked value
     if drill_col in ['concepts', 'concepts_single']:
     # For concepts, filter rows containing this concept
-        d = d[d['concepts_single'].apply(lambda x: clicked_value in x if isinstance(x, list) else False)]
+        d = d[d['concepts'].apply(lambda x: clicked_value in x if isinstance(x, list) else False)]
         drill_to_col = 'domain'  # Force drill-down to domains
     else:
         # For sprig categories, filter directly
@@ -1431,5 +1430,6 @@ def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, 
                 new_data.append(row)
         
         return new_data, expanded_rows
+
 
 
