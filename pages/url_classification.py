@@ -685,9 +685,8 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'Avg CVR %', 'id': 'avg_cvr'},
             {'name': 'CTR %', 'id': 'ctr'},
             {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'}
-    
+            {'name': 'Mnet ROAS', 'id': 'mnet_roas'}
+
           ],
         style_cell=TABLE_STYLE['style_cell'],
         style_header=TABLE_STYLE['style_header'],
