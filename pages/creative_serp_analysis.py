@@ -48,7 +48,7 @@ ATTRIBUTE_COLUMNS = [
 # Educational descriptions for Ad Title attributes
 ATTRIBUTE_DESCRIPTIONS = {
     'specificity': {
-        'title': 'Specificity Level',
+        'title': '',
         'description': 'Measures clarity and detail in the ad title.\n\n• High: Contains specific numbers, facts, or detailed information that clearly communicates value\n• Medium: Has some specific elements but could be more detailed\n• Low: Vague or generic messaging without concrete details',
         'values': {
             'High': 'Title provides specific, concrete information (e.g., "Save $50 on...", "3 Easy Steps to...")',
@@ -57,7 +57,7 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'attention_trigger': {
-        'title': 'Attention Trigger Strength',
+        'title': '',
         'description': 'Measures how compelling the hook is - how likely users are to click.\n\n• High: Creates strong curiosity or intrigue without revealing everything; uses sensational language\n• Medium: Has some engaging elements but moderate appeal\n• Low: Straightforward title with minimal curiosity-building elements',
         'values': {
             'High': 'Strong hook with curiosity gap or sensational words (e.g., "Shocking Truth About...", "What They Don\'t Tell You...")',
@@ -66,7 +66,7 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'tone': {
-        'title': 'Emotional Tone',
+        'title': '',
         'description': 'Identifies the underlying emotion conveyed in the ad title.\n\n• Negative/Fear: Emphasizes problems, risks, or what could go wrong\n• Positive/Aspirational: Focuses on benefits, improvements, or positive outcomes\n• Neutral/Informational: Objective, fact-based without strong emotional slant',
         'values': {
             'Negative/Fear': 'Highlights problems, warnings, or negative consequences (e.g., "Avoid These Mistakes...", "Warning Signs of...")',
@@ -1455,6 +1455,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
