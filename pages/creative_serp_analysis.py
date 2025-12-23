@@ -556,7 +556,7 @@ layout = dbc.Container(
                                         html.Hr(style={'borderColor': '#444'}),
                                         
                                         # Creative & SERP Attributes Section
-                                        html.H4("Creative & SERP Attributes Analysis", style={'color': '#5dade2', 'marginTop': '20px'}),
+                                        html.H4("SERP Design Attributes Analysis", style={'color': '#5dade2', 'marginTop': '20px'}),
                                         html.Div(id='cs_attributes_content')
                                     ]
                                 )
@@ -1019,11 +1019,8 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
     # Filter for this attribute value
     detail_data = d[d[attr] == selected_value].copy()
     
-    # Create Creative-SERP pairs
-    detail_data['pair'] = detail_data['creative'].astype(str) + ' | ' + detail_data['serp'].astype(str)
-    
-    # Aggregate by pair
-    pair_agg = detail_data.groupby('pair', dropna=True).agg(
+    # Aggregate by SERP (instead of Creative-SERP pairs)
+    serp_agg = detail_data.groupby('serp', dropna=True).agg(
         impressions=('impressions', 'sum'),
         clicks=('clicks', 'sum'),
         conversions=('conversions', 'sum'),
@@ -1033,21 +1030,17 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
     ).reset_index()
     
     # Calculate metrics
-    pair_agg['ctr'] = np.where(pair_agg['impressions']>0, 100*pair_agg['clicks']/pair_agg['impressions'], 0)
-    pair_agg['cvr'] = np.where(pair_agg['clicks']>0, 100*pair_agg['conversions']/pair_agg['clicks'], 0)
-    pair_agg['cpa'] = np.where(pair_agg['conversions']>0, pair_agg['adv_cost']/pair_agg['conversions'], 0)
-    pair_agg['mnet_roas'] = np.where(pair_agg['max_cost']>0, pair_agg['actual_adv_payout']/pair_agg['max_cost'], 0)
-    pair_agg['adv_roas'] = np.where(pair_agg['adv_cost']>0, pair_agg['actual_adv_payout']/pair_agg['adv_cost'], 0)
+    serp_agg['ctr'] = np.where(serp_agg['impressions']>0, 100*serp_agg['clicks']/serp_agg['impressions'], 0)
+    serp_agg['cvr'] = np.where(serp_agg['clicks']>0, 100*serp_agg['conversions']/serp_agg['clicks'], 0)
+    serp_agg['cpa'] = np.where(serp_agg['conversions']>0, serp_agg['adv_cost']/serp_agg['conversions'], 0)
+    serp_agg['mnet_roas'] = np.where(serp_agg['max_cost']>0, serp_agg['actual_adv_payout']/serp_agg['max_cost'], 0)
+    serp_agg['adv_roas'] = np.where(serp_agg['adv_cost']>0, serp_agg['actual_adv_payout']/serp_agg['adv_cost'], 0)
     
-    # Split pair back to creative and serp
-    pair_agg[['creative', 'serp']] = pair_agg['pair'].str.split(' | ', expand=True)
-    pair_agg = pair_agg.drop('pair', axis=1)
-    
-    # Sort by conversions
-    pair_agg = pair_agg.sort_values('conversions', ascending=False)
+    # Sort by clicks and take top 5
+    serp_agg = serp_agg.sort_values('clicks', ascending=False).head(5)
     
     # Round
-    pair_agg = pair_agg.round(2)
+    serp_agg = serp_agg.round(2)
     
     # Create conditional styling
     style_conditional = [
@@ -1073,7 +1066,14 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
          'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
     ]
     
-    attr_display = attr.replace('_', ' ').title()
+    ATTR_DISPLAY_NAMES = {
+        'cta_present': 'Text CTA Present?',
+        'bg_color': 'Background Color',
+        'font_color': 'Main Font Color',
+        'cta_color': 'CTA Color',
+        'logo_present': 'Adv Logo Present?'
+    }
+    attr_display = ATTR_DISPLAY_NAMES.get(attr, attr.replace('_', ' ').title())
     
     return html.Div([
         dbc.Button("▲ Collapse", 
@@ -1081,19 +1081,10 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
                    color="info", 
                    size="sm", 
                    style={'marginBottom': '10px'}),
-        html.H6(f"Creative-SERP Pairs for {attr_display}: {selected_value}", 
+        html.H6(f"Top 5 SERPs by Clicks for {attr_display}: {selected_value}", 
                 style={'color': '#17a2b8', 'marginBottom': '10px'}),
-        html.P([
-            f"Category Averages: ",
-            html.Span(f"CVR: {avg_cvr:.2f}% ", style={'color': '#ffcc00'}),
-            html.Span(f"CTR: {avg_ctr:.2f}% ", style={'color': '#ffcc00'}),
-            html.Span(f"CPA: ${avg_cpa:.2f} ", style={'color': '#ffcc00'}),
-            html.Span(f"Mnet ROAS: {avg_mnet_roas:.2f} ", style={'color': '#ffcc00'}),
-            html.Span(f"Adv ROAS: {avg_adv_roas:.2f}", style={'color': '#ffcc00'})
-        ], style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
         dash_table.DataTable(
             columns=[
-                {'name': 'Creative', 'id': 'creative'},
                 {'name': 'SERP', 'id': 'serp'},
                 {'name': 'Impressions', 'id': 'impressions'},
                 {'name': 'Clicks', 'id': 'clicks'},
@@ -1104,7 +1095,7 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
                 {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
                 {'name': 'Adv ROAS', 'id': 'adv_roas'}
             ],
-            data=pair_agg.to_dict('records'),
+            data=serp_agg.to_dict('records'),
             style_cell={
                 'textAlign': 'left',
                 'backgroundColor': '#1a1a1a',
@@ -1124,7 +1115,7 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
                 'color': '#17a2b8'
             },
             style_data_conditional=style_conditional,
-            page_size=15
+            page_size=5
         )
     ], style={
         'backgroundColor': '#0a0a0a', 
@@ -1133,8 +1124,6 @@ def update_cs_drilldown(selected_rows, table_data, table_id, advs, camp_types, c
         'border': '2px solid #17a2b8',
         'marginLeft': '20px'
     })
-
-
 # Collapse callback for Creative & SERP attributes
 @callback(
     Output({'type': 'cs-attr-table', 'index': MATCH}, 'selected_rows'),
@@ -1274,15 +1263,6 @@ def update_ad_title_content(advs, camp_types, camps):
                     html.Span(ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('description', '').split('\n\n')[0], 
                              style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '10px'}),
-                html.P([
-                    f"Category Averages: ",
-                    html.Span(f"CVR: {overall_avg_cvr:.2f}% ", style={'color': '#ffcc00'}),
-                    html.Span(f"CTR: {overall_avg_ctr:.2f}% ", style={'color': '#ffcc00'}),
-                    html.Span(f"CPA: ${overall_avg_cpa:.2f} ", style={'color': '#ffcc00'}),
-                    html.Span(f"Mnet ROAS: {overall_avg_mnet_roas:.2f} ", style={'color': '#ffcc00'}),
-                    html.Span(f"Adv ROAS: {overall_avg_adv_roas:.2f}", style={'color': '#ffcc00'})
-                ], style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
-
                 dash_table.DataTable(
                     id={'type': 'attr-table', 'index': attr},
                     columns=[
@@ -1346,8 +1326,6 @@ def update_ad_title_content(advs, camp_types, camps):
     
     return html.Div([
         html.H3("Ad Title Performance Analysis", style={'color': '#17a2b8', 'marginBottom': '20px'}),
-        html.P(f"Overall Average CVR: {overall_avg_cvr:.2f}%", 
-               style={'color': '#00ff00', 'fontSize': '16px', 'fontWeight': 'bold'}),
         html.Hr(style={'borderColor': '#444'}),
         *attribute_sections
     ])
@@ -1436,14 +1414,6 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
                    color="secondary", size="sm", style={'marginBottom': '10px'}),
         html.H6(f"Ad Titles for {attr.replace('_', ' ').title()}: {selected_value}", 
                 style={'color': '#ffcc00', 'marginBottom': '10px'}),
-        html.P([
-            f"Category Averages: ",
-            html.Span(f"CVR: {avg_cvr:.2f}% ", style={'color': '#17a2b8'}),
-            html.Span(f"CTR: {avg_ctr:.2f}% ", style={'color': '#17a2b8'}),
-            html.Span(f"CPA: ${avg_cpa:.2f} ", style={'color': '#17a2b8'}),
-            html.Span(f"Mnet ROAS: {avg_mnet_roas:.2f} ", style={'color': '#17a2b8'}),
-            html.Span(f"Adv ROAS: {avg_adv_roas:.2f}", style={'color': '#17a2b8'})
-        ], style={'color': '#aaa', 'fontSize': '12px'}),
         dash_table.DataTable(
             columns=[
                 {'name': 'Ad Title', 'id': 'ad_title'},
@@ -1487,6 +1457,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
