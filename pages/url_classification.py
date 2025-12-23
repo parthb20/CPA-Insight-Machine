@@ -784,21 +784,16 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         id='contextuality_table',
         sort_action='native',
         columns=[
-            {'name': 'Contextuality', 'id': 'contextuality'},
+        {'name': 'Contextuality', 'id': 'contextuality'},
         {'name': 'Impressions', 'id': 'impressions'},
         {'name': 'Clicks', 'id': 'clicks'},
         {'name': 'Conv', 'id': 'conversions'},
         {'name': 'CVR %', 'id': 'cvr'},
         {'name': 'Avg CVR %', 'id': 'avg_cvr'},
         {'name': 'CTR %', 'id': 'ctr'},
-        {'name': '', 'id': 'avg_ctr', 'hidden': True},
         {'name': 'CPA', 'id': 'cpa'},
-        {'name': '', 'id': 'avg_cpa', 'hidden': True},
         {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-        {'name': '', 'id': 'avg_mnet_roas', 'hidden': True},
-        {'name': 'Adv ROAS', 'id': 'adv_roas'},
-        {'name': '', 'id': 'row_type', 'hidden': True},
-        {'name': '', 'id': 'row_id', 'hidden': True}
+        {'name': 'Adv ROAS', 'id': 'adv_roas'}
         ],
         style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
