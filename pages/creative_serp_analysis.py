@@ -208,51 +208,50 @@ try:
         if pd.isna(count):
             return 'Unknown'
         count = int(count)
-        def bucket_count(count):
-            if count <= 0:
-                return '0'
-            elif count <= 5:
-                return '1-5'
-            elif count <= 10:
-                return '6-10'
-            elif count <= 15:
-                return '11-15'
-            elif count <= 20:
-                return '16-20'
-            elif count <= 25:
-                return '21-25'
-            elif count <= 30:
-                return '26-30'
-            elif count <= 35:
-                return '31-35'
-            elif count <= 40:
-                return '36-40'
-            elif count <= 45:
-                return '41-45'
-            elif count <= 50:
-                return '46-50'
-            elif count <= 55:
-                return '51-55'
-            elif count <= 60:
-                return '56-60'
-            elif count <= 65:
-                return '61-65'
-            elif count <= 70:
-                return '66-70'
-            elif count <= 75:
-                return '71-75'
-            elif count <= 80:
-                return '76-80'
-            elif count <= 85:
-                return '81-85'
-            elif count <= 90:
-                return '86-90'
-            elif count <= 95:
-                return '91-95'
-            elif count <= 100:
-                return '96-100'
-            else:
-                return '100+'
+        if count <= 0:
+            return '0'
+        elif count <= 5:
+            return '1-5'
+        elif count <= 10:
+            return '6-10'
+        elif count <= 15:
+            return '11-15'
+        elif count <= 20:
+            return '16-20'
+        elif count <= 25:
+            return '21-25'
+        elif count <= 30:
+            return '26-30'
+        elif count <= 35:
+            return '31-35'
+        elif count <= 40:
+            return '36-40'
+        elif count <= 45:
+            return '41-45'
+        elif count <= 50:
+            return '46-50'
+        elif count <= 55:
+            return '51-55'
+        elif count <= 60:
+            return '56-60'
+        elif count <= 65:
+            return '61-65'
+        elif count <= 70:
+            return '66-70'
+        elif count <= 75:
+            return '71-75'
+        elif count <= 80:
+            return '76-80'
+        elif count <= 85:
+            return '81-85'
+        elif count <= 90:
+            return '86-90'
+        elif count <= 95:
+            return '91-95'
+        elif count <= 100:
+            return '96-100'
+        else:
+            return '100+'
 
     if 'character_count' in ad_df.columns:
         ad_df['character_count'] = ad_df['character_count'].apply(create_char_bucket)
