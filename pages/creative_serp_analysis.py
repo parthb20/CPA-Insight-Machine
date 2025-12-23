@@ -75,7 +75,7 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'trust_signal': {
-        'title': 'Credibility Signal',
+        'title': '',
         'description': 'Measures what type of authority or proof the title leverages.\n\n• Expert-Based: References doctors, scientists, professionals, or expert opinions\n• Social-Proof-Based: Mentions celebrities, testimonials, or popular acceptance\n• None: No specific credibility signals present',
         'values': {
             'Expert-Based': 'Quotes experts, doctors, or professionals (e.g., "Doctors Recommend...", "Expert-Approved...")',
@@ -84,8 +84,8 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'framing': {
-        'title': 'Message Framing',
-        'description': 'Identifies whether the title focuses on problems, solutions, or context.\n\n• Problem-Based: Highlights pain points, challenges, or issues\n• Solution-Based: Presents answers, remedies, or ways to fix problems\n• Context-Based: Provides background information or educational content',
+        'title': '',
+        'description': 'Identifies whether the title focuses on problems, solutions, or depends on context.\n\n• Problem-Based: Highlights pain points, challenges, or issues\n• Solution-Based: Presents answers, remedies, or ways to fix problems\n• Context-Based: Provides background information or educational content',
         'values': {
             'Problem-Based': 'Focuses on issues or pain points (e.g., "Struggling With...", "Tired of...")',
             'Solution-Based': 'Presents solutions or remedies (e.g., "How to Fix...", "The Solution to...")',
@@ -93,7 +93,7 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'character_count': {
-        'title': 'Character Length',
+        'title': '',
         'description': 'Groups ad titles by their character count to analyze optimal length.\n\nDifferent lengths serve different purposes:\n• Shorter titles (1-30): Quick, punchy messages\n• Medium titles (31-60): Balanced detail and brevity\n• Longer titles (60+): Detailed, informative messages',
         'values': {
             '1-5': 'Very short - typically symbols or brand names',
@@ -107,7 +107,7 @@ ATTRIBUTE_DESCRIPTIONS = {
         }
     },
     'is_number_present': {
-        'title': 'Numeric Elements',
+        'title': '',
         'description': 'Indicates whether the title contains numbers.\n\nNumbers can:\n• Increase specificity and credibility\n• Attract attention with concrete data\n• Set clear expectations (e.g., "7 Tips", "$50 Off", "In 30 Days")',
         'values': {
             'Yes': 'Title contains numbers - often increases click-through by providing specific, measurable information',
@@ -208,40 +208,52 @@ try:
         if pd.isna(count):
             return 'Unknown'
         count = int(count)
-        if count <= 0:
-            return '0'
-        elif count <= 5:
-            return '1-5'
-        elif count <= 10:
-            return '6-10'
-        elif count <= 15:
-            return '11-15'
-        elif count <= 20:
-            return '16-20'
-        elif count <= 25:
-            return '21-25'
-        elif count <= 30:
-            return '26-30'
-        elif count <= 35:
-            return '31-35'
-        elif count <= 40:
-            return '36-40'
-        elif count <= 45:
-            return '41-45'
-        elif count <= 50:
-            return '46-50'
-        elif count <= 60:
-            return '51-60'
-        elif count <= 70:
-            return '61-70'
-        elif count <= 80:
-            return '71-80'
-        elif count <= 90:
-            return '81-90'
-        elif count <= 100:
-            return '91-100'
-        else:
-            return '100+'
+        def bucket_count(count):
+            if count <= 0:
+                return '0'
+            elif count <= 5:
+                return '1-5'
+            elif count <= 10:
+                return '6-10'
+            elif count <= 15:
+                return '11-15'
+            elif count <= 20:
+                return '16-20'
+            elif count <= 25:
+                return '21-25'
+            elif count <= 30:
+                return '26-30'
+            elif count <= 35:
+                return '31-35'
+            elif count <= 40:
+                return '36-40'
+            elif count <= 45:
+                return '41-45'
+            elif count <= 50:
+                return '46-50'
+            elif count <= 55:
+                return '51-55'
+            elif count <= 60:
+                return '56-60'
+            elif count <= 65:
+                return '61-65'
+            elif count <= 70:
+                return '66-70'
+            elif count <= 75:
+                return '71-75'
+            elif count <= 80:
+                return '76-80'
+            elif count <= 85:
+                return '81-85'
+            elif count <= 90:
+                return '86-90'
+            elif count <= 95:
+                return '91-95'
+            elif count <= 100:
+                return '96-100'
+            else:
+                return '100+'
+
     if 'character_count' in ad_df.columns:
         ad_df['character_count'] = ad_df['character_count'].apply(create_char_bucket)
     # Convert numeric columns
@@ -1257,7 +1269,7 @@ def update_ad_title_content(advs, camp_types, camps):
             html.Div([
                 html.H5(f"{attr_display_name} Performance", style={'color': '#5dade2', 'marginTop': '30px'}),
                 html.P([
-                    f"💡 {ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('title', attr_display_name)}: ",
+                    f"💡 {ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('title', attr_display_name)}",
                     html.Span(ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('description', '').split('\n\n')[0], 
                              style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'})
                 ], style={'marginBottom': '10px'}),
@@ -1455,6 +1467,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
