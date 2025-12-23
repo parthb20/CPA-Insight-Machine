@@ -831,14 +831,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'if': {'column_id': 'cvr', 'filter_query': '{cvr} > {avg_cvr}'}, 'value': 'Above average CVR', 'type': 'text'},
             {'if': {'column_id': 'cvr', 'filter_query': '{cvr} < {avg_cvr}'}, 'value': 'Below average CVR', 'type': 'text'},
         ],
-        tooltip_data=[
-            {
-                'contextuality': {
-                    'value': row.get('_tooltip', ''),
-                    'type': 'markdown'
-                    } if row.get('_tooltip') else {}
-                } for row in (table_data if 'table_data' in locals() else [])
-            ],
+        tooltip_data=[],
         tooltip_duration=None
     ),
     dcc.Store(id='expanded_rows', data=[]),
@@ -1341,8 +1334,11 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
      Output('expanded_rows', 'data')],
     [Input('contextuality_table', 'active_cell')],
     [State('contextuality_table', 'data'),
-     State('expanded_rows', 'data')],
-     prevent_initial_call=True
+     State('expanded_rows', 'data'),
+     State('adv_dd','value'),
+     State('camp_type_dd','value'),
+     State('camp_dd','value')],
+    prevent_initial_call=True
 )
 def toggle_contextuality_rows(active_cell, table_data, expanded_rows, advs, camp_types, camps):
     """Toggle expansion of contextuality rows inline"""
@@ -1444,7 +1440,8 @@ def toggle_contextuality_rows(active_cell, table_data, expanded_rows, advs, camp
                             'mnet_roas': round(pair['mnet_roas'], 2),
                             'adv_roas': '',
                             'row_type': 'detail',
-                            'parent_id': row_id
+                            'parent_id': row_id,
+                            '_tooltip': context_desc  # Add tooltip
                         }
                         new_data.append(detail_row)
             else:
