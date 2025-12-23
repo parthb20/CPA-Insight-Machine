@@ -686,6 +686,8 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'name': 'CTR %', 'id': 'ctr'},
             {'name': 'CPA', 'id': 'cpa'},
             {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
+            {'name': 'Adv ROAS', 'id': 'adv_roas'}
+    
           ],
         style_cell=TABLE_STYLE['style_cell'],
         style_header=TABLE_STYLE['style_header'],
@@ -784,15 +786,20 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         sort_action='native',
         columns=[
             {'name': 'Contextuality', 'id': 'contextuality'},
-            {'name': 'Impressions', 'id': 'impressions'},
-            {'name': 'Clicks', 'id': 'clicks'},
-            {'name': 'Conv', 'id': 'conversions'},
-            {'name': 'CVR %', 'id': 'cvr'},
-            {'name': 'Avg CVR %', 'id': 'avg_cvr'},
-            {'name': 'CTR %', 'id': 'ctr'},
-            {'name': 'CPA', 'id': 'cpa'},
-            {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
-            {'name': 'Adv ROAS', 'id': 'adv_roas'}
+        {'name': 'Impressions', 'id': 'impressions'},
+        {'name': 'Clicks', 'id': 'clicks'},
+        {'name': 'Conv', 'id': 'conversions'},
+        {'name': 'CVR %', 'id': 'cvr'},
+        {'name': 'Avg CVR %', 'id': 'avg_cvr'},
+        {'name': 'CTR %', 'id': 'ctr'},
+        {'name': '', 'id': 'avg_ctr', 'hidden': True},
+        {'name': 'CPA', 'id': 'cpa'},
+        {'name': '', 'id': 'avg_cpa', 'hidden': True},
+        {'name': 'Mnet ROAS', 'id': 'mnet_roas'},
+        {'name': '', 'id': 'avg_mnet_roas', 'hidden': True},
+        {'name': 'Adv ROAS', 'id': 'adv_roas'},
+        {'name': '', 'id': 'row_type', 'hidden': True},
+        {'name': '', 'id': 'row_id', 'hidden': True}
         ],
         style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
@@ -1134,8 +1141,9 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
             ctx_table_data['row_type'] = 'main'
             ctx_table_data['row_id'] = range(len(ctx_table_data))
             ctx_table_data = ctx_table_data[['contextuality', 'impressions', 'clicks', 'conversions', 
-                                      'cvr', 'avg_cvr', 'ctr', 'cpa', 'mnet_roas', 'adv_roas', 
-                                      'row_type', 'row_id']].round(2).to_dict('records')
+                                  'cvr', 'avg_cvr', 'ctr', 'avg_ctr', 'cpa', 'avg_cpa', 
+                                  'mnet_roas', 'avg_mnet_roas', 'adv_roas', 
+                                  'row_type', 'row_id']].round(2).to_dict('records')
         else:
             ctx_table_data = []
 
