@@ -300,15 +300,13 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
 # Then sort by metric_sort for left-to-right layout
-    if metric_sort == 'ctr' or metric_sort == 'cvr' or metric_sort == 'mnet_roas':
-    # Higher is better - decreasing left to right
+    if metric_sort in ['ctr', 'cvr', 'mnet_roas']:
         g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     elif metric_sort == 'cpa':
-    # Lower is better - increasing left to right (lower CPA on left)
+        # Lower is better - lowest on LEFT
         g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
     else:
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
-    
+        g = g.sort_values('clicks', ascending=False).reset_index(drop=True)    
     # Calculate color thresholds for metric_color
     avg = g[metric_color].mean()
     std = g[metric_color].std()
@@ -678,6 +676,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     
     dash_table.DataTable(
         id='dynamic_concepts_table',
+        sort_action='native',
         columns=[
             {'name': 'Concept', 'id': 'concepts'},
             {'name': 'Clicks', 'id': 'clicks'},
@@ -737,6 +736,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 # URL TABLE
     dash_table.DataTable(
         id='dynamic_urls_table',
+        sort_action='native',
         columns=[
             {'name': 'URL', 'id': 'url'},
             {'name': 'Clicks', 'id': 'clicks'},
@@ -749,8 +749,8 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         ],
         style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
-            {'if': {'column_id': 'url'}, 'maxWidth': '40%', 'whiteSpace': 'normal', 'height': 'auto'}
-        ],
+            {'if': {'column_id': 'contextuality'}, 'maxWidth': '50%', 'whiteSpace': 'pre-line', 'height': 'auto', 'minHeight': '60px'},  # INCREASE THIS
+            ],
         style_header=TABLE_STYLE['style_header'],
         style_data=TABLE_STYLE['style_data'],
         style_data_conditional=[
@@ -781,6 +781,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
            style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
     dash_table.DataTable(
         id='contextuality_table',
+        sort_action='native',
         columns=[
             {'name': 'Contextuality', 'id': 'contextuality'},
             {'name': 'Impressions', 'id': 'impressions'},
@@ -795,7 +796,13 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
         ],
         style_cell=TABLE_STYLE['style_cell'],
         style_cell_conditional=[
-            {'if': {'column_id': 'contextuality'}, 'maxWidth': '30%', 'whiteSpace': 'normal'},
+            {'if': {'column_id': 'contextuality'}, 
+             'minWidth': '400px', 
+             'maxWidth': '600px', 
+             'whiteSpace': 'pre-line',  # Preserves line breaks
+             'height': 'auto',
+             'overflow': 'visible',
+             'textOverflow': 'clip'},
         ],
         style_header=TABLE_STYLE['style_header'],
         style_data=TABLE_STYLE['style_data'],
@@ -820,8 +827,19 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
             {'if': {'filter_query': '{mnet_roas} < {avg_mnet_roas}', 'column_id': 'mnet_roas'}, 
              'color': '#ff0000'}
         ],
-        tooltip_data=[],
-        tooltip_duration=None    
+        tooltip_conditional=[
+            {'if': {'column_id': 'cvr', 'filter_query': '{cvr} > {avg_cvr}'}, 'value': 'Above average CVR', 'type': 'text'},
+            {'if': {'column_id': 'cvr', 'filter_query': '{cvr} < {avg_cvr}'}, 'value': 'Below average CVR', 'type': 'text'},
+        ],
+        tooltip_data=[
+            {
+                'contextuality': {
+                    'value': row.get('_tooltip', ''),
+                    'type': 'markdown'
+                    } if row.get('_tooltip') else {}
+                } for row in (table_data if 'table_data' in locals() else [])
+            ],
+        tooltip_duration=None
     ),
     dcc.Store(id='expanded_rows', data=[]),
     html.Hr(style={'borderColor': '#444'}),
@@ -1195,63 +1213,69 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
-
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # Close modal and clear clickData when close button clicked
+    # Close modal and clear ALL clickData
     if trigger_id == "close_modal":
         return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
     
-    # Don't reopen if modal is already open
-    if is_open:
-        return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
-    
-    # Determine which treemap was clicked and what to drill down to
+    # Determine which treemap was clicked
     click_data = None
     drill_col = None
     drill_to_col = None
+    show_cvr_ctr = True
     
     if trigger_id == "treemap_cvr_ctr":
         click_data = click_cvr
         drill_col = 'concepts'
         drill_to_col = 'domain'
+        show_cvr_ctr = True
     elif trigger_id == "treemap_roas_cpa":
         click_data = click_roas
         drill_col = 'concepts'
         drill_to_col = 'domain'
+        show_cvr_ctr = False
     elif trigger_id == "treemap_url_top_cvr_ctr":
         click_data = click_url_top_cvr
         drill_col = 'sprig_url_top'
-        drill_to_col = 'sprig_url'
+        drill_to_col = 'domain'
+        show_cvr_ctr = True
     elif trigger_id == "treemap_url_top_roas_cpa":
         click_data = click_url_top_roas
         drill_col = 'sprig_url_top'
-        drill_to_col = 'sprig_url'
+        drill_to_col = 'domain'
+        show_cvr_ctr = False
     elif trigger_id == "treemap_dom_top_cvr_ctr":
         click_data = click_dom_top_cvr
         drill_col = 'sprig_domain_top'
-        drill_to_col = 'sprig_domain'
+        drill_to_col = 'domain'
+        show_cvr_ctr = True
     elif trigger_id == "treemap_dom_top_roas_cpa":
         click_data = click_dom_top_roas
         drill_col = 'sprig_domain_top'
-        drill_to_col = 'sprig_domain'
+        drill_to_col = 'domain'
+        show_cvr_ctr = False
     elif trigger_id == "treemap_url_final_cvr_ctr":
         click_data = click_url_final_cvr
         drill_col = 'sprig_url_final'
-        drill_to_col = 'sprig_url'
+        drill_to_col = 'domain'
+        show_cvr_ctr = True
     elif trigger_id == "treemap_url_final_roas_cpa":
         click_data = click_url_final_roas
         drill_col = 'sprig_url_final'
-        drill_to_col = 'sprig_url'
+        drill_to_col = 'domain'
+        show_cvr_ctr = False
     elif trigger_id == "treemap_dom_final_cvr_ctr":
         click_data = click_dom_final_cvr
         drill_col = 'sprig_domain_final'
-        drill_to_col = 'sprig_domain'
+        drill_to_col = 'domain'
+        show_cvr_ctr = True
     elif trigger_id == "treemap_dom_final_roas_cpa":
         click_data = click_dom_final_roas
         drill_col = 'sprig_domain_final'
-        drill_to_col = 'sprig_domain'
+        drill_to_col = 'domain'
+        show_cvr_ctr = False
     
     if not click_data or 'points' not in click_data or len(click_data['points']) == 0:
         return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
@@ -1262,21 +1286,17 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
     
     # Filter data
-    d = filter_dataframe(df, advs, camp_types, camps)  # Use the optimized function
+    d = filter_dataframe(df, advs, camp_types, camps)
     
     # Filter based on the clicked value
-    if drill_col in ['concepts', 'concepts_single']:
-    # For concepts, filter rows containing this concept
+    if drill_col == 'concepts':
         d = d[d['concepts'].apply(lambda x: clicked_value in x if isinstance(x, list) else False)]
-        drill_to_col = 'domain'  # Force drill-down to domains
     else:
-        # For sprig categories, filter directly
         d = d[d[drill_col] == clicked_value]
     
-    # Aggregate by the drill-to column
+    # Aggregate by domain
     g_drill = weighted_aggregate(d, drill_to_col)
-    g_drill = g_drill.nlargest(5, 'clicks')  # Top 5 only
-
+    g_drill = g_drill.nlargest(5, 'clicks')
     
     if len(g_drill) == 0:
         fig = go.Figure()
@@ -1286,61 +1306,57 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
             paper_bgcolor='#111',
             font=dict(color='white')
         )
-        return True, f"Drill-down for: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
     
     # Calculate aggregated stats
     total_clicks = d['clicks'].sum()
+    total_impressions = d['impressions'].sum()
     total_conversions = d['conversions'].sum()
+    total_adv_cost = d['adv_cost'].sum()
+    total_max_cost = d['max_cost'].sum()
+    total_adv_value = d['adv_value'].sum()
+    
     agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
+    agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
+    agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
+    agg_mnet_roas = (total_adv_value / total_max_cost) if total_max_cost > 0 else 0
     
-    avg_metrics = {'cvr': agg_cvr}
+    avg_metrics = {'cvr': agg_cvr, 'ctr': agg_ctr, 'cpa': agg_cpa, 'mnet_roas': agg_mnet_roas}
     
-    # Create treemap
-    fig = create_treemap(
-        g_drill, 
-        'cvr', 
-        'clicks', 
-        f'Drill-down: "{clicked_value}" → {drill_to_col}',
-        show_cvr_ctr=True,
-        top_n=15,
-        col_name=drill_to_col,
-        avg_metrics=avg_metrics
-    )
+    # Create treemap with same style as main treemaps
+    if show_cvr_ctr:
+        fig = create_treemap(g_drill, 'cvr', 'ctr', 
+                           f'Top 5 Domains for: {clicked_value}',
+                           show_cvr_ctr=True, top_n=5, col_name=drill_to_col, avg_metrics=avg_metrics)
+    else:
+        fig = create_treemap(g_drill, 'mnet_roas', 'cpa',
+                           f'Top 5 Domains for: {clicked_value}', 
+                           show_cvr_ctr=False, top_n=5, col_name=drill_to_col, avg_metrics=avg_metrics)
     
-    # Return with all clickData set to None to clear them
-    return True, f"Drill-down for: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+    return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+
 
 @callback(
     [Output('contextuality_table', 'data', allow_duplicate=True),
      Output('expanded_rows', 'data')],
-    [Input('contextuality_table', 'active_cell'),
-     Input('adv_dd','value'),
-     Input('camp_type_dd','value'),
-     Input('camp_dd','value')],
+    [Input('contextuality_table', 'active_cell')],
     [State('contextuality_table', 'data'),
      State('expanded_rows', 'data')],
-    prevent_initial_call=True
+     prevent_initial_call=True
 )
-def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, expanded_rows):
+def toggle_contextuality_rows(active_cell, table_data, expanded_rows, advs, camp_types, camps):
     """Toggle expansion of contextuality rows inline"""
     
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        raise dash.exceptions.PreventUpdate
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    # If filters changed, rebuild table without expanded rows
-    if trigger_id in ['adv_dd', 'camp_type_dd', 'camp_dd']:
-        # Remove all detail rows
-        main_rows = [row for row in table_data if row.get('row_type') == 'main']
-        return main_rows, []
-    
-    # Handle row click
+    # Handle row click only
     if not active_cell or not table_data:
         raise dash.exceptions.PreventUpdate
     
     clicked_row_idx = active_cell['row']
+    
+    # Safety check
+    if clicked_row_idx >= len(table_data):
+        raise dash.exceptions.PreventUpdate
+        
     clicked_row = table_data[clicked_row_idx]
     
     # Only process main rows
@@ -1396,24 +1412,33 @@ def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, 
         
         top_pairs = pairs.nlargest(5, 'clicks')
         
+        # Contextuality description
+        if 'Highly Contextual' in contextuality_value:
+            context_desc = "✅ Highly Contextual: URL & Campaign highly related"
+        elif 'Contextual' in contextuality_value:
+            context_desc = "⚠️ Contextual: Somewhat related"
+        else:
+            context_desc = "❌ Non-Contextual: Unrelated"
+        
         # Build new table data with detail rows inserted
         new_data = []
-        for i, row in enumerate(table_data):
+        for row in table_data:
             if row.get('row_type') == 'main':
                 row_copy = row.copy()
                 if row_copy.get('row_id') == row_id:
                     row_copy['contextuality'] = '▼ ' + contextuality_value
                 new_data.append(row_copy)
                 
-                # Insert detail rows after this main row
+                # Insert detail rows
                 if row_copy.get('row_id') == row_id:
                     for _, pair in top_pairs.iterrows():
                         detail_row = {
-                            'contextuality': f"  ↳ {pair['url'][:50]}... | {pair['campaign'][:30]}",
-                            'impressions': pair['impressions'],
+                            'contextuality': f"  ↳ {pair['url']}\n     Campaign: {pair['campaign']}",
+                            'impressions': int(pair['impressions']),
                             'clicks': int(pair['clicks']),
                             'conversions': round(pair['conversions'], 2),
                             'cvr': round(pair['cvr'], 2),
+                            'avg_cvr': '',
                             'ctr': round(pair['ctr'], 2),
                             'cpa': round(pair['cpa'], 2),
                             'mnet_roas': round(pair['mnet_roas'], 2),
@@ -1426,7 +1451,3 @@ def toggle_contextuality_rows(active_cell, advs, camp_types, camps, table_data, 
                 new_data.append(row)
         
         return new_data, expanded_rows
-
-
-
-
