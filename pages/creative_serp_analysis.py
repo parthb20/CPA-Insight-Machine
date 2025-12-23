@@ -45,7 +45,76 @@ ATTRIBUTE_COLUMNS = [
     'character_count',
     'is_number_present'
 ]
-
+# Educational descriptions for Ad Title attributes
+ATTRIBUTE_DESCRIPTIONS = {
+    'specificity': {
+        'title': 'Specificity Level',
+        'description': 'Measures clarity and detail in the ad title.\n\n• High: Contains specific numbers, facts, or detailed information that clearly communicates value\n• Medium: Has some specific elements but could be more detailed\n• Low: Vague or generic messaging without concrete details',
+        'values': {
+            'High': 'Title provides specific, concrete information (e.g., "Save $50 on...", "3 Easy Steps to...")',
+            'Medium': 'Title has moderate detail but could be more specific',
+            'Low': 'Generic or vague title lacking concrete details'
+        }
+    },
+    'attention_trigger': {
+        'title': 'Attention Trigger Strength',
+        'description': 'Measures how compelling the hook is - how likely users are to click.\n\n• High: Creates strong curiosity or intrigue without revealing everything; uses sensational language\n• Medium: Has some engaging elements but moderate appeal\n• Low: Straightforward title with minimal curiosity-building elements',
+        'values': {
+            'High': 'Strong hook with curiosity gap or sensational words (e.g., "Shocking Truth About...", "What They Don\'t Tell You...")',
+            'Medium': 'Moderate appeal with some engaging elements',
+            'Low': 'Direct, straightforward title with minimal intrigue'
+        }
+    },
+    'tone': {
+        'title': 'Emotional Tone',
+        'description': 'Identifies the underlying emotion conveyed in the ad title.\n\n• Negative/Fear: Emphasizes problems, risks, or what could go wrong\n• Positive/Aspirational: Focuses on benefits, improvements, or positive outcomes\n• Neutral/Informational: Objective, fact-based without strong emotional slant',
+        'values': {
+            'Negative/Fear': 'Highlights problems, warnings, or negative consequences (e.g., "Avoid These Mistakes...", "Warning Signs of...")',
+            'Positive/Aspirational': 'Emphasizes benefits and positive outcomes (e.g., "Achieve Your Dreams...", "Feel Better Than Ever")',
+            'Neutral/Informational': 'Objective, informational tone without strong emotion'
+        }
+    },
+    'trust_signal': {
+        'title': 'Credibility Signal',
+        'description': 'Measures what type of authority or proof the title leverages.\n\n• Expert-Based: References doctors, scientists, professionals, or expert opinions\n• Social-Proof-Based: Mentions celebrities, testimonials, or popular acceptance\n• None: No specific credibility signals present',
+        'values': {
+            'Expert-Based': 'Quotes experts, doctors, or professionals (e.g., "Doctors Recommend...", "Expert-Approved...")',
+            'Social-Proof-Based': 'References celebrities, crowds, or social validation (e.g., "Thousands Trust...", "As Seen on TV")',
+            'None': 'No specific trust signals or authority references'
+        }
+    },
+    'framing': {
+        'title': 'Message Framing',
+        'description': 'Identifies whether the title focuses on problems, solutions, or context.\n\n• Problem-Based: Highlights pain points, challenges, or issues\n• Solution-Based: Presents answers, remedies, or ways to fix problems\n• Context-Based: Provides background information or educational content',
+        'values': {
+            'Problem-Based': 'Focuses on issues or pain points (e.g., "Struggling With...", "Tired of...")',
+            'Solution-Based': 'Presents solutions or remedies (e.g., "How to Fix...", "The Solution to...")',
+            'Context-Based': 'Provides informational or educational context'
+        }
+    },
+    'character_count': {
+        'title': 'Character Length',
+        'description': 'Groups ad titles by their character count to analyze optimal length.\n\nDifferent lengths serve different purposes:\n• Shorter titles (1-30): Quick, punchy messages\n• Medium titles (31-60): Balanced detail and brevity\n• Longer titles (60+): Detailed, informative messages',
+        'values': {
+            '1-5': 'Very short - typically symbols or brand names',
+            '6-10': 'Short and punchy',
+            '11-20': 'Brief but can convey simple message',
+            '21-30': 'Concise with moderate detail',
+            '31-40': 'Balanced length for most ad titles',
+            '41-50': 'Detailed messaging',
+            '51-60': 'Extended detail',
+            '60+': 'Long-form titles with comprehensive information'
+        }
+    },
+    'is_number_present': {
+        'title': 'Numeric Elements',
+        'description': 'Indicates whether the title contains numbers.\n\nNumbers can:\n• Increase specificity and credibility\n• Attract attention with concrete data\n• Set clear expectations (e.g., "7 Tips", "$50 Off", "In 30 Days")',
+        'values': {
+            'Yes': 'Title contains numbers - often increases click-through by providing specific, measurable information',
+            'No': 'Title does not contain numbers - relies on other persuasive elements'
+        }
+    }
+}
 # =========================================================
 # LOAD DATA
 # =========================================================
@@ -305,6 +374,8 @@ layout = dbc.Container(
         ], style={'marginBottom': '30px'}),
 
         html.Hr(style={'borderColor': '#444'}),
+        html.Div(id='shared_agg_stats', style={'marginBottom': '20px'}),
+
 
         # Tabs
         dcc.Tabs(
@@ -325,8 +396,7 @@ layout = dbc.Container(
                                     style={'padding': '20px'},
                                     children=[
                                         # Aggregated Stats
-                                        html.Div(id='cs_agg_stats', style={'marginBottom': '20px'}),
-
+                                        
                                         html.Hr(style={'borderColor': '#444'}),
 
                                         html.H4("Creative Performance", style={'color': '#5dade2'}),
@@ -534,11 +604,65 @@ def update_filters(advs, camp_types):
         [{'label': x, 'value': x} for x in campaign_types],
         [{'label': x, 'value': x} for x in campaigns]
     )
-
+@callback(
+    Output('shared_agg_stats', 'children'),
+    [Input('cs_adv_dd', 'value'),
+     Input('cs_camp_type_dd', 'value'),
+     Input('cs_camp_dd', 'value'),
+     Input('main_tabs', 'value')]
+)
+def update_shared_stats(advs, camp_types, camps, active_tab):
+    # Use ad_df for Ad Title tab, df for Creative & SERP tab
+    if active_tab == 'tab-ad-title' and AD_TITLE_AVAILABLE:
+        d = ad_df.copy()
+    else:
+        d = df.copy()
+    
+    # Apply filters
+    if advs:
+        d = d[d['advertiser'].isin(advs)]
+    if camp_types:
+        d = d[d['campaign_type'].isin(camp_types)]
+    if camps:
+        d = d[d['campaign'].isin(camps)]
+    
+    # Calculate aggregated stats (same logic as before)
+    total_clicks = d['clicks'].sum()
+    total_impressions = d['impressions'].sum()
+    total_conversions = d['conversions'].sum()
+    total_adv_cost = d['adv_cost'].sum()
+    total_max_cost = d['max_cost'].sum()
+    total_actual_adv_payout = d['actual_adv_payout'].sum()
+    
+    agg_cvr = (total_conversions / total_clicks * 100) if total_clicks > 0 else 0
+    agg_ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
+    agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
+    agg_mnet_roas = (total_actual_adv_payout / total_max_cost) if total_max_cost > 0 else 0
+    agg_adv_roas = (total_actual_adv_payout / total_adv_cost) if total_adv_cost > 0 else 0
+    
+    # Return the stats card (same as before)
+    return dbc.Card([
+        dbc.CardBody([
+            html.H4("Aggregated Stats", style={'color': '#17a2b8', 'marginBottom': '15px'}),
+            dbc.Row([
+                dbc.Col([html.Strong("Clicks: ", style={'color': '#aaa'}), 
+                        html.Span(f"{int(total_clicks):,}", style={'color': '#5dade2', 'fontSize': '18px'})], width=2),
+                dbc.Col([html.Strong("Conversions: ", style={'color': '#aaa'}), 
+                        html.Span(f"{total_conversions:.2f}", style={'color': '#5dade2', 'fontSize': '18px'})], width=2),
+                dbc.Col([html.Strong("CVR: ", style={'color': '#aaa'}), 
+                        html.Span(f"{agg_cvr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})], width=2),
+                dbc.Col([html.Strong("CTR: ", style={'color': '#aaa'}), 
+                        html.Span(f"{agg_ctr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})], width=2),
+                dbc.Col([html.Strong("CPA: ", style={'color': '#aaa'}), 
+                        html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00', 'fontSize': '18px'})], width=2),
+                dbc.Col([html.Strong("ROAS: ", style={'color': '#aaa'}), 
+                        html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})], width=2)
+            ])
+        ])
+    ], style={'backgroundColor': '#222', 'border': '1px solid #444'})
 # Update Creative & SERP Analysis
 @callback(
-    [Output('cs_agg_stats', 'children'),
-     Output('dynamic_creatives', 'data'),
+    [Output('dynamic_creatives', 'data'),
      Output('dynamic_creatives', 'style_data_conditional'),
      Output('dynamic_serps', 'data'),
      Output('dynamic_serps', 'style_data_conditional'),
@@ -583,27 +707,7 @@ def update_creative_serp(advs, camp_types, camps,
     agg_cpa = (total_adv_cost / total_conversions) if total_conversions > 0 else 0
     agg_mnet_roas = (total_actual_adv_payout / total_max_cost) if total_max_cost > 0 else 0
     agg_adv_roas = (total_actual_adv_payout / total_adv_cost) if total_adv_cost > 0 else 0
-    
-    stats_display = dbc.Card([
-        dbc.CardBody([
-            html.H4("Aggregated Stats", style={'color': '#17a2b8', 'marginBottom': '15px'}),
-            dbc.Row([
-                dbc.Col([html.Strong("Clicks: ", style={'color': '#aaa'}), 
-                        html.Span(f"{int(total_clicks):,}", style={'color': '#5dade2', 'fontSize': '18px'})], width=2),
-                dbc.Col([html.Strong("Conversions: ", style={'color': '#aaa'}), 
-                        html.Span(f"{total_conversions:.2f}", style={'color': '#5dade2', 'fontSize': '18px'})], width=2),
-                dbc.Col([html.Strong("CVR: ", style={'color': '#aaa'}), 
-                        html.Span(f"{agg_cvr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})], width=2),
-                dbc.Col([html.Strong("CTR: ", style={'color': '#aaa'}), 
-                        html.Span(f"{agg_ctr:.2f}%", style={'color': '#00ff00', 'fontSize': '18px'})], width=2),
-                dbc.Col([html.Strong("CPA: ", style={'color': '#aaa'}), 
-                        html.Span(f"${agg_cpa:.2f}", style={'color': '#ffcc00', 'fontSize': '18px'})], width=2),
-                dbc.Col([html.Strong("ROAS: ", style={'color': '#aaa'}), 
-                        html.Span(f"{agg_mnet_roas:.2f}", style={'color': '#00ff00', 'fontSize': '18px'})], width=2)
-            ])
-        ])
-    ], style={'backgroundColor': '#222', 'border': '1px solid #444'})
-    
+        
     def get_dynamic_table(d, group_col, table_type, table_count, table_sort, min_clicks=3):
         """Generate dynamic table based on filters"""
         g = d.groupby(group_col, dropna=True).agg(
@@ -690,8 +794,7 @@ def update_creative_serp(advs, camp_types, camps,
     
     conditional = add_color_conditional(agg_cvr, agg_ctr, agg_mnet_roas, agg_adv_roas, agg_cpa)
     
-    return (stats_display, 
-            dynamic_creatives, conditional,
+    return (dynamic_creatives, conditional,
             dynamic_serps, conditional,
             dynamic_pairs, conditional)
 # Update Creative & SERP Attributes Analysis
@@ -1149,9 +1252,28 @@ def update_ad_title_content(advs, camp_types, camps):
             {'if': {'filter_query': f'{{adv_roas}} <= {overall_avg_adv_roas}', 'column_id': 'adv_roas'}, 
              'backgroundColor': '#4d1a1a', 'color': '#ff0000', 'fontWeight': 'bold'}
         ]
+        tooltip_header = {
+            attr: ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('description', attr_display_name)
+        }
+        tooltip_data = []
+        for idx, row in agg_data.iterrows():
+            attr_value = row[attr]
+            value_description = ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('values', {}).get(str(attr_value), '')
+            
+            tooltip_row = {
+                attr: f"**{attr_value}**: {value_description}" if value_description else str(attr_value)
+            }
+            tooltip_data.append(tooltip_row)
+
+        
         attribute_sections.append(
             html.Div([
                 html.H5(f"{attr_display_name} Performance", style={'color': '#5dade2', 'marginTop': '30px'}),
+                html.P([
+                    f"💡 {ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('title', attr_display_name)}: ",
+                    html.Span(ATTRIBUTE_DESCRIPTIONS.get(attr, {}).get('description', '').split('\n\n')[0], 
+                             style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'})
+                ], style={'marginBottom': '10px'}),
                 html.P([
                     f"Category Averages: ",
                     html.Span(f"CVR: {overall_avg_cvr:.2f}% ", style={'color': '#ffcc00'}),
@@ -1159,7 +1281,7 @@ def update_ad_title_content(advs, camp_types, camps):
                     html.Span(f"CPA: ${overall_avg_cpa:.2f} ", style={'color': '#ffcc00'}),
                     html.Span(f"Mnet ROAS: {overall_avg_mnet_roas:.2f} ", style={'color': '#ffcc00'}),
                     html.Span(f"Adv ROAS: {overall_avg_adv_roas:.2f}", style={'color': '#ffcc00'})
-                    ], style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
+                ], style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '10px'}),
 
                 dash_table.DataTable(
                     id={'type': 'attr-table', 'index': attr},
@@ -1175,7 +1297,7 @@ def update_ad_title_content(advs, camp_types, camps):
                         {'name': 'Advertiser Cost', 'id': 'adv_cost'},
                         {'name': 'Actual Adv Payout', 'id': 'actual_adv_payout'},
                         {'name': 'Max System Cost', 'id': 'max_cost'}
-                        ],
+                    ],
                     data=agg_data.to_dict('records'),
                     style_cell={
                         'textAlign': 'left',
@@ -1188,17 +1310,35 @@ def update_ad_title_content(advs, camp_types, camps):
                         'maxWidth': '200px',
                         'overflow': 'hidden',
                         'textOverflow': 'ellipsis'
-                        },
+                    },
                     style_header={
                         'backgroundColor': '#111',
                         'fontWeight': 'bold',
                         'border': '1px solid #444',
                         'color': '#17a2b8'
-                        },
+                    },
                     style_data_conditional=style_conditional,
                     row_selectable='single',
                     selected_rows=[],
-                    hidden_columns=[]
+                    hidden_columns=[],
+                    # ADD TOOLTIPS HERE
+                    tooltip_header=tooltip_header,
+                    tooltip_data=tooltip_data,
+                    tooltip_duration=None,
+                    tooltip_delay=0,
+                    css=[{
+                        'selector': '.dash-table-tooltip',
+                        'rule': '''
+                            background-color: #1a1a1a;
+                            border: 2px solid #17a2b8;
+                            color: white;
+                            font-size: 12px;
+                            padding: 12px;
+                            max-width: 400px;
+                            white-space: pre-wrap;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+                        '''
+                    }]
                 ),
                 html.Div(id={'type': 'drilldown-container', 'index': attr})
             ])
@@ -1347,7 +1487,6 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
-
 
 
 
