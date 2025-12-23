@@ -941,8 +941,6 @@ def update_cs_attributes(advs, camp_types, camps):
             html.Div([
                 html.H5(f"{attr_display_name} Performance", 
                         style={'color': '#ffcc00', 'marginTop': '25px', 'marginBottom': '10px'}),
-                html.P(f"Overall Averages: CVR: {overall_avg_cvr:.2f}%, CTR: {overall_avg_ctr:.2f}%, CPA: ${overall_avg_cpa:.2f}, Mnet ROAS: {overall_avg_mnet_roas:.2f}, Adv ROAS: {overall_avg_adv_roas:.2f}",
-                       style={'color': '#888', 'fontSize': '11px', 'marginBottom': '10px'}),
                 dash_table.DataTable(
                     id={'type': 'cs-attr-table', 'index': attr},
                     columns=columns,
@@ -1457,6 +1455,7 @@ def update_drilldown_expand(selected_rows, table_data, table_id, advs, camp_type
 )
 def collapse_drilldown(n_clicks):
     return []
+
 
 
 
