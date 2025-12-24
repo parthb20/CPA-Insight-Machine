@@ -298,8 +298,14 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     
     # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
-    # Sort by metric_sort DESCENDING (HIGHEST on LEFT, decreasing to right)
+    
+    # Sort by metric_sort DESCENDING (HIGHEST first)
     g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
+    
+    # Add rank prefix to labels for explicit ordering
+    label_col = col_name if col_name in g.columns else 'concepts'
+    g['rank'] = range(1, len(g) + 1)
+    g['display_label'] = g['rank'].astype(str) + '. ' + g[label_col].astype(str)
     
     # Calculate color thresholds for metric_color
     avg = g[metric_color].mean()
@@ -308,12 +314,10 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     max_val = g[metric_color].max()
     
     # Create hover text based on treemap type
-    # Create hover text based on treemap type
-    label_col = col_name if col_name in g.columns else 'concepts'
-    
     if show_cvr_ctr:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
+            'Rank by ' + metric_sort.upper() + ': #' + g['rank'].astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CVR: ' + g['cvr'].round(2).astype(str) + '% (Avg: ' + (str(round(avg_metrics['cvr'], 2)) if avg_metrics else str(round(g['cvr'].mean(), 2))) + '%)<br>' +
             'CTR: ' + g['ctr'].round(2).astype(str) + '%'
@@ -321,20 +325,20 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     else:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
+            'Rank by ' + metric_sort.upper() + ': #' + g['rank'].astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
-            'CPA: ' + g['cpa'].round(2).astype(str) + '<br>' +
+            'CPA: $' + g['cpa'].round(2).astype(str) + '<br>' +
             'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str)
         )
-    color_min = max(0, min_val - 0.2 * std)  # Slightly below minimum
-    color_max = max_val + 0.2 * std
-    # Create a numeric index to force left-to-right ordering
-    g['sort_index'] = range(len(g))  # 0, 1, 2, ... (already sorted DESC by metric_sort)
     
-    # Use sort_index as values to force layout order, but display clicks in hover
+    color_min = max(0, min_val - 0.2 * std)
+    color_max = max_val + 0.2 * std
+    
+    # Use clicks as values (actual size), but rely on rank prefix for visual ordering
     fig = go.Figure(go.Treemap(
-        labels=g[label_col],
+        labels=g['display_label'],
         parents=[''] * len(g),
-        values=g['sort_index'] + 1,  # Use index as size (add 1 to avoid 0)
+        values=g['clicks'],  # Use actual clicks for sizing
         marker=dict(
             colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
             cmid=avg,
@@ -344,29 +348,29 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             line=dict(width=2, color='#000')
         ),
         textposition='middle center',
-        textfont=dict(size=14, color='black', family='Arial Black'), 
+        textfont=dict(size=12, color='black', family='Arial Black'), 
         hovertext=g['hover_text'],
         hoverinfo='text',
         marker_colors=g[metric_color],
-        customdata=g[label_col],
-        branchvalues='total'  # Ensures left-to-right follows data order
+        customdata=g[label_col],  # Store original label for click handling
+        branchvalues='total'
     ))
     
     # Add aggregated stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}%"
+            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Highest → Lowest)"
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f}"
+            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()}"
         
         fig.add_annotation(
             text=stats_text,
             xref="paper", yref="paper",
             x=0.5, y=-0.05,
             showarrow=False,
-            font=dict(size=14, color='#5dade2', family='Arial Black'),
+            font=dict(size=12, color='#5dade2', family='Arial Black'),
             align='center'
-    )
+        )
 
     fig.update_layout(
         title=dict(text=title, font=dict(size=16, color='#5dade2')),
@@ -374,12 +378,10 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         plot_bgcolor='#111',
         paper_bgcolor='#111',
         font=dict(color='white', size=12),
-        margin=dict(b=80)  # Add bottom margin for stats
-
+        margin=dict(b=80)
     )
     
     return fig
-
 # =========================================================
 # BUBBLE CHART
 # =========================================================
@@ -1104,11 +1106,13 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
             dynamic_concepts['avg_cvr'] = agg_cvr
             dynamic_concepts['row_type'] = 'main'
             dynamic_concepts['parent_concept'] = ''
-            dynamic_concepts_display = dynamic_concepts[['concepts', 'clicks', 'conversions', 'cvr', 'avg_cvr', 
-                                                   'ctr', 'cpa', 'mnet_roas', 'row_type', 'parent_concept']].round(2).to_dict('records')
-        else:
-            dynamic_concepts_display = []
-
+        # Add arrow prefix for single-word concepts (no spaces)
+            dynamic_concepts['concepts'] = dynamic_concepts['concepts'].apply(
+            lambda x: f"▶ {x}" if ' ' not in str(x) else x
+        )
+        dynamic_concepts_display = dynamic_concepts[['concepts', 'clicks', 'conversions', 'cvr', 'avg_cvr', 
+                                           'ctr', 'cpa', 'mnet_roas', 'row_type', 'parent_concept']].round(2).to_dict('records')
+        
 # Dynamic URLs table (similar logic)
         if url_table_type == 'best':
             url_candidates = g_url[(g_url['clicks'] >= 10) & (g_url['cvr'] > 0)].copy()
@@ -1260,11 +1264,11 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     if not click_data or 'points' not in click_data or len(click_data['points']) == 0:
         return False, "", go.Figure(), None, None, None, None, None, None
     
-    clicked_value = click_data['points'][0].get('label', '')
-    
+    # Get original label from customdata (strips rank prefix)
+    clicked_value = click_data['points'][0].get('customdata', '')
     if not clicked_value:
-        return False, "", go.Figure(), None, None, None, None, None, None
-    
+        clicked_value = click_data['points'][0].get('label', '').split('. ', 1)[-1]  # Fallback: strip "1. " prefix
+        
     # Filter data
     d = filter_dataframe(df, advs, camp_types, camps)
     
@@ -1286,7 +1290,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
             paper_bgcolor='#111',
             font=dict(color='white')
         )
-        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None
     
     # Calculate aggregated stats
     total_clicks = d['clicks'].sum()
@@ -1313,7 +1317,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
                            f'Top 5 Domains for: {clicked_value}', 
                            show_cvr_ctr=False, top_n=5, col_name=drill_to_col, avg_metrics=avg_metrics)
     
-    return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None, None, None, None
+    return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None
 
 
 @callback(
@@ -1462,18 +1466,24 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
     # Only process main rows
     if clicked_row.get('row_type') != 'main':
         raise dash.exceptions.PreventUpdate
-    
-    concept = clicked_row['concepts']
+
+    concept = clicked_row['concepts'].replace('▶ ', '').replace('▼ ', '').strip()
+    original_concept = concept  # Store without arrows
     
     # Toggle expansion
-    if concept in expanded_rows:
-        # Collapse
-        expanded_rows.remove(concept)
-        new_data = [row for row in table_data if row.get('parent_concept') != concept]
+    if original_concept in expanded_rows:
+        expanded_rows.remove(original_concept)
+        new_data = []
+        for row in table_data:
+            if row.get('parent_concept') != original_concept:
+                row_copy = row.copy()
+                if row_copy.get('row_type') == 'main' and original_concept in row_copy['concepts']:
+                    row_copy['concepts'] = '▶ ' + original_concept
+                new_data.append(row_copy)
         return new_data, expanded_rows
     else:
         # Expand
-        expanded_rows.append(concept)
+        expanded_rows.append(original_concept)
         
         # Get compound words containing this concept
         d = filter_dataframe(df, advs, camp_types, camps)
@@ -1483,17 +1493,21 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
         compound_words = []
         for concepts_list in d_filtered['concepts']:
             if isinstance(concepts_list, list):
-                compound_words.extend([c for c in concepts_list if ' ' in c and concept in c])
+                compound_words.extend([c for c in concepts_list if ' ' in c and original_concept in c])
         
         compound_counts = Counter(compound_words)
         
         # Get top 3 URLs for each compound word
         new_data = []
         for row in table_data:
-            new_data.append(row)
-            if row['concepts'] == concept and row.get('row_type') == 'main':
+            row_copy = row.copy()
+            if row_copy.get('row_type') == 'main' and original_concept in row_copy['concepts']:
+                row_copy['concepts'] = '▼ ' + original_concept
+            new_data.append(row_copy)
+            
+            if original_concept in row['concepts'] and row.get('row_type') == 'main':
                 # Add compound word rows
-                for compound, count in compound_counts.most_common(10):
+                for compound, count in compound_counts.most_common(5):
                     d_compound = d_filtered[d_filtered['concepts'].apply(
                         lambda x: compound in x if isinstance(x, list) else False)]
                     
@@ -1511,7 +1525,7 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     cvr = (total_conv / total_clicks * 100) if total_clicks > 0 else 0
                     
                     detail_row = {
-                        'concepts': f"  ↳ {compound}",
+                        'concepts': f"    ↳ {compound}",  # 4 spaces for better indentation
                         'clicks': int(total_clicks),
                         'conversions': round(total_conv, 2),
                         'cvr': round(cvr, 2),
