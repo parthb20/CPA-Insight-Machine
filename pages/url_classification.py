@@ -327,24 +327,31 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         )
     color_min = max(0, min_val - 0.2 * std)  # Slightly below minimum
     color_max = max_val + 0.2 * std
+    # Create a numeric index to force left-to-right ordering
+    g['sort_index'] = range(len(g))  # 0, 1, 2, ... (already sorted DESC by metric_sort)
+    
+    # Use sort_index as values to force layout order, but display clicks in hover
     fig = go.Figure(go.Treemap(
         labels=g[label_col],
         parents=[''] * len(g),
-        values=np.sqrt(g['clicks']),  # Square root normalization for better visibility
+        values=g['sort_index'] + 1,  # Use index as size (add 1 to avoid 0)
         marker=dict(
-        colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
-        cmid=avg,
-        cmin=color_min,  # Red at minimum
-        cmax=color_max,
-        colorbar=dict(title=metric_color.upper(), tickfont=dict(color='white')),
-        line=dict(width=2, color='#000')
-    ),
+            colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
+            cmid=avg,
+            cmin=color_min,
+            cmax=color_max,
+            colorbar=dict(title=metric_color.upper(), tickfont=dict(color='white')),
+            line=dict(width=2, color='#000')
+        ),
         textposition='middle center',
         textfont=dict(size=14, color='black', family='Arial Black'), 
         hovertext=g['hover_text'],
         hoverinfo='text',
         marker_colors=g[metric_color],
-        customdata=g[label_col]))
+        customdata=g[label_col],
+        branchvalues='total'  # Ensures left-to-right follows data order
+    ))
+    
     # Add aggregated stats annotation
     if avg_metrics:
         if show_cvr_ctr:
@@ -663,7 +670,16 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
                                   {'label': 'CPA', 'value': 'cpa'},
                                   {'label': 'ROAS', 'value': 'mnet_roas'}],
                          style={'color': 'black'})
-        ], width=2)
+        ], width=2),
+        dbc.Col([
+            html.Label("Filter by parent concept:", style={'color': 'white'}),
+            dcc.Dropdown(
+                id='concept_filter_dd',
+                placeholder="All concepts",
+                options=[],  # Will be populated by callback
+                style={'color': 'black'},
+                clearable=True)
+        ], width=4)
     ], style={'marginBottom': '15px'}),
     #
 # CONCEPT TABLE with drill-down
@@ -948,6 +964,26 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
     return df[[col_name, 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
 
 @callback(
+    Output('concept_filter_dd', 'options'),
+    [Input('adv_dd','value'),
+     Input('camp_type_dd','value'),
+     Input('camp_dd','value')]
+)
+def update_concept_filter_options(advs, camp_types, camps):
+    """Populate concept filter dropdown with single-word concepts"""
+    d = filter_dataframe(df, advs, camp_types, camps)
+    d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)
+    
+    # Get all single-word concepts (no spaces)
+    all_concepts = [c for concepts in d_concepts['concepts'] for c in concepts if isinstance(c, str) and ' ' not in c]
+    concept_counts = Counter(all_concepts)
+    
+    # Only show concepts with at least 10 clicks
+    valid_concepts = sorted([c for c, count in concept_counts.items() if count >= 10])
+    
+    return [{'label': c, 'value': c} for c in valid_concepts]
+
+@callback(
     [Output('agg_stats', 'children'),
      Output('treemap_cvr_ctr', 'figure'),
      Output('treemap_roas_cpa', 'figure'),
@@ -967,9 +1003,10 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
      Input('url_table_type', 'value'),     # ← ADD THIS
      Input('url_table_count', 'value'),    # ← ADD THIS
      Input('url_table_sort', 'value'),
-     Input('sprig_count','value')]
+     Input('sprig_count','value'),
+    Input('concept_filter_dd', 'value')]  # ← ADD THIS LINE
 )
-def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count):      
+def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count, concept_filter):  # ← ADD concept_filter 
     try:
         if sprig_count is None:
             sprig_count = 5
@@ -990,7 +1027,12 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
         d = filter_dataframe(df, advs, camp_types, camps)
         d_contextuality = filter_dataframe(df_contextuality, advs, camp_types, camps)
         d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)  # ← FIXED
-
+        if concept_filter:
+            d_concepts = d_concepts[
+                d_concepts['concepts'].apply(
+                    lambda x: concept_filter in x if isinstance(x, str) else False
+                )
+            ]
         
         # Early return if no data
         if len(d) == 0:
@@ -1166,10 +1208,8 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
     [State("drilldown_modal", "is_open")],
     prevent_initial_call=True
 )
-def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top_roas, 
-                        click_dom_top_cvr, click_dom_top_roas, click_url_final_cvr, 
-                        click_url_final_roas, click_dom_final_cvr, click_dom_final_roas,
-                        close_clicks, advs, camp_types, camps, is_open):
+def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top_roas, click_url_final_cvr, 
+                        click_url_final_roas, close_clicks, advs, camp_types, camps, is_open):
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
@@ -1178,7 +1218,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     
     # Close modal and clear ALL clickData
     if trigger_id == "close_modal":
-        return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
+        return False, "", go.Figure(), None, None, None, None, None, None
     
     # Determine which treemap was clicked
     click_data = None
@@ -1206,16 +1246,6 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         drill_col = 'sprig_url_top'
         drill_to_col = 'domain'
         show_cvr_ctr = False
-    elif trigger_id == "treemap_dom_top_cvr_ctr":
-        click_data = click_dom_top_cvr
-        drill_col = 'sprig_domain_top'
-        drill_to_col = 'domain'
-        show_cvr_ctr = True
-    elif trigger_id == "treemap_dom_top_roas_cpa":
-        click_data = click_dom_top_roas
-        drill_col = 'sprig_domain_top'
-        drill_to_col = 'domain'
-        show_cvr_ctr = False
     elif trigger_id == "treemap_url_final_cvr_ctr":
         click_data = click_url_final_cvr
         drill_col = 'sprig_url_final'
@@ -1226,24 +1256,14 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         drill_col = 'sprig_url_final'
         drill_to_col = 'domain'
         show_cvr_ctr = False
-    elif trigger_id == "treemap_dom_final_cvr_ctr":
-        click_data = click_dom_final_cvr
-        drill_col = 'sprig_domain_final'
-        drill_to_col = 'domain'
-        show_cvr_ctr = True
-    elif trigger_id == "treemap_dom_final_roas_cpa":
-        click_data = click_dom_final_roas
-        drill_col = 'sprig_domain_final'
-        drill_to_col = 'domain'
-        show_cvr_ctr = False
     
     if not click_data or 'points' not in click_data or len(click_data['points']) == 0:
-        return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
+        return False, "", go.Figure(), None, None, None, None, None, None
     
     clicked_value = click_data['points'][0].get('label', '')
     
     if not clicked_value:
-        return False, "", go.Figure(), None, None, None, None, None, None, None, None, None, None
+        return False, "", go.Figure(), None, None, None, None, None, None
     
     # Filter data
     d = filter_dataframe(df, advs, camp_types, camps)
