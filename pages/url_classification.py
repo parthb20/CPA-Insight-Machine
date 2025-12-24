@@ -270,7 +270,7 @@ def top3_urls(df, group_col):
 # TREEMAP FUNCTIONS
 # =========================================================
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
-    """Create treemap with forced ordering by using equal-sized blocks"""
+    """Create treemap with log-scaled sizes and forced ordering"""
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
@@ -298,7 +298,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
     
-    # Sort by metric_sort DESCENDING (HIGHEST first for CTR, LOWEST first for CPA)
+    # Sort by metric_sort (HIGHEST first for CTR, LOWEST first for CPA)
     if metric_sort == 'cpa':
         g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)  # Low CPA is best
     else:
@@ -330,20 +330,48 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str)
         )
     
-    # Add rank to labels
+    # Add rank to labels with clicks
     g['display_label'] = (g.index + 1).astype(str) + '. ' + g[label_col].astype(str) + '<br>(' + g['clicks'].astype(int).astype(str) + ' clicks)'
     
     color_min = max(0, min_val - 0.2 * std)
     color_max = max_val + 0.2 * std
     
-    # KEY CHANGE: Use EQUAL values (1.0 for each) so blocks are same size
-    # This forces left-to-right ordering based on our sort
-    equal_values = [1.0] * len(g)
+    # KEY CHANGE: Use LOG-SCALED clicks for sizing
+    # This gives visual weight difference while maintaining order
+    log_clicks = np.log1p(g['clicks'])  # log(1 + clicks) to handle small values
+    # Normalize log values to reasonable range (1-100) to maintain order
+    min_log = log_clicks.min()
+    max_log = log_clicks.max()
+    if max_log > min_log:
+        scaled_values = 1 + 99 * (log_clicks - min_log) / (max_log - min_log)
+    else:
+        scaled_values = [50.0] * len(g)
+    
+    # Force ordering by creating sequential parent groups
+    num_items = len(g)
+    g['parent_group'] = ['G' + str(i).zfill(3) for i in range(num_items)]
+    
+    # Build data arrays
+    labels = []
+    parents = []
+    values = []
+    colors_list = []
+    hover_texts = []
+    customdata_list = []
+    
+    # Add items in sorted order
+    for idx, (_, row) in enumerate(g.iterrows()):
+        labels.append(row['display_label'])
+        parents.append('')  # All at root level for proper left-right flow
+        values.append(scaled_values.iloc[idx])
+        colors_list.append(row[metric_color])
+        hover_texts.append(row['hover_text'])
+        customdata_list.append(row[label_col])
     
     fig = go.Figure(go.Treemap(
-        labels=g['display_label'],
-        parents=[''] * len(g),
-        values=equal_values,  # ← EQUAL SIZES FOR ALL BLOCKS
+        labels=labels,
+        parents=parents,
+        values=values,
         marker=dict(
             colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
             cmid=avg,
@@ -354,26 +382,26 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         ),
         textposition='middle center',
         textfont=dict(size=10, color='black', family='Arial Black'),
-        hovertext=g['hover_text'],
+        hovertext=hover_texts,
         hoverinfo='text',
-        marker_colors=g[metric_color],
-        customdata=g[label_col],
+        marker_colors=colors_list,
+        customdata=customdata_list,
         branchvalues='total'
     ))
     
     # Add aggregated stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Best Left → Worst Right)"
+            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Best Left → Worst Right, Size = Log Clicks)"
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} (Best Left → Worst Right)"
+            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} (Best Left → Worst Right, Size = Log Clicks)"
         
         fig.add_annotation(
             text=stats_text,
             xref="paper", yref="paper",
             x=0.5, y=-0.05,
             showarrow=False,
-            font=dict(size=12, color='#5dade2', family='Arial Black'),
+            font=dict(size=11, color='#5dade2', family='Arial Black'),
             align='center'
         )
 
@@ -1232,49 +1260,52 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     # Determine which treemap was clicked
     click_data = None
     drill_col = None
-    drill_to_col = None
     show_cvr_ctr = True
+    metric_sort = 'ctr'
     
     if trigger_id == "treemap_cvr_ctr":
         click_data = click_cvr
         drill_col = 'concepts'
-        drill_to_col = 'domain'
         show_cvr_ctr = True
+        metric_sort = 'ctr'
     elif trigger_id == "treemap_roas_cpa":
         click_data = click_roas
         drill_col = 'concepts'
-        drill_to_col = 'domain'
         show_cvr_ctr = False
+        metric_sort = 'cpa'
     elif trigger_id == "treemap_url_top_cvr_ctr":
         click_data = click_url_top_cvr
         drill_col = 'sprig_url_top'
-        drill_to_col = 'domain'
         show_cvr_ctr = True
+        metric_sort = 'ctr'
     elif trigger_id == "treemap_url_top_roas_cpa":
         click_data = click_url_top_roas
         drill_col = 'sprig_url_top'
-        drill_to_col = 'domain'
         show_cvr_ctr = False
+        metric_sort = 'cpa'
     elif trigger_id == "treemap_url_final_cvr_ctr":
         click_data = click_url_final_cvr
         drill_col = 'sprig_url_final'
-        drill_to_col = 'domain'
         show_cvr_ctr = True
+        metric_sort = 'ctr'
     elif trigger_id == "treemap_url_final_roas_cpa":
         click_data = click_url_final_roas
         drill_col = 'sprig_url_final'
-        drill_to_col = 'domain'
         show_cvr_ctr = False
+        metric_sort = 'cpa'
     
     if not click_data or 'points' not in click_data or len(click_data['points']) == 0:
         return False, "", go.Figure(), None, None, None, None, None, None
     
-    # Get original label from customdata (strips rank prefix)
+    # Get original label from customdata
     clicked_value = click_data['points'][0].get('customdata', '')
     if not clicked_value:
-        clicked_value = click_data['points'][0].get('label', '').split('. ', 1)[-1]  # Fallback: strip "1. " prefix
+        # Fallback: extract from label (remove rank and clicks)
+        label = click_data['points'][0].get('label', '')
+        # Remove "1. " prefix and "(XXX clicks)" suffix
+        clicked_value = label.split('. ', 1)[-1].split('<br>')[0] if '. ' in label else label.split('<br>')[0]
         
-    # Filter data
+    # Filter data based on filters
     d = filter_dataframe(df, advs, camp_types, camps)
     
     # Filter based on the clicked value
@@ -1283,11 +1314,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     else:
         d = d[d[drill_col] == clicked_value]
     
-    # Aggregate by domain
-    g_drill = weighted_aggregate(d, drill_to_col)
-    g_drill = g_drill.nlargest(5, 'clicks')
-    
-    if len(g_drill) == 0:
+    if len(d) == 0:
         fig = go.Figure()
         fig.update_layout(
             title=f"No data found for: {clicked_value}",
@@ -1295,9 +1322,25 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
             paper_bgcolor='#111',
             font=dict(color='white')
         )
-        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None
+        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None
     
-    # Calculate aggregated stats
+    # Aggregate by domain
+    g_drill = weighted_aggregate(d, 'domain')
+    
+    if len(g_drill) == 0:
+        fig = go.Figure()
+        fig.update_layout(
+            title=f"No domains found for: {clicked_value}",
+            plot_bgcolor='#111',
+            paper_bgcolor='#111',
+            font=dict(color='white')
+        )
+        return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None
+    
+    # Take top 10 domains by clicks
+    g_drill = g_drill.nlargest(10, 'clicks')
+    
+    # Calculate aggregated stats for this drill-down
     total_clicks = d['clicks'].sum()
     total_impressions = d['impressions'].sum()
     total_conversions = d['conversions'].sum()
@@ -1314,15 +1357,15 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     
     # Create treemap with same style as main treemaps
     if show_cvr_ctr:
-        fig = create_treemap(g_drill, 'cvr', 'ctr', 
-                           f'Top 5 Domains for: {clicked_value}',
-                           show_cvr_ctr=True, top_n=5, col_name=drill_to_col, avg_metrics=avg_metrics)
+        fig = create_treemap(g_drill, 'cvr', metric_sort, 
+                           f'Top 10 Domains for: {clicked_value}',
+                           show_cvr_ctr=True, top_n=10, col_name='domain', avg_metrics=avg_metrics)
     else:
-        fig = create_treemap(g_drill, 'mnet_roas', 'cpa',
-                           f'Top 5 Domains for: {clicked_value}', 
-                           show_cvr_ctr=False, top_n=5, col_name=drill_to_col, avg_metrics=avg_metrics)
+        fig = create_treemap(g_drill, 'mnet_roas', metric_sort,
+                           f'Top 10 Domains for: {clicked_value}', 
+                           show_cvr_ctr=False, top_n=10, col_name='domain', avg_metrics=avg_metrics)
     
-    return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None, None
+    return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None
 
 
 @callback(
