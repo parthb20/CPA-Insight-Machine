@@ -270,24 +270,19 @@ def top3_urls(df, group_col):
 # TREEMAP FUNCTIONS
 # =========================================================
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
-    """Create treemap with log-scaled sizes and forced ordering"""
+    """Create custom treemap with guaranteed left-to-right ordering"""
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
         fig.update_layout(title="No data", plot_bgcolor='#111', paper_bgcolor='#111', font=dict(color='white'))
         return fig
     
-    # Remove duplicates by grouping if needed
+    # Remove duplicates
     if col_name in g.columns:
         g = g.groupby(col_name, dropna=True).agg({
-            'clicks': 'sum',
-            'impressions': 'sum',
-            'conversions': 'sum',
-            'adv_cost': 'sum',
-            'max_cost': 'sum',
-            'adv_value': 'sum',
-            'mnet_roas': 'mean',
-            'adv_roas': 'mean'
+            'clicks': 'sum', 'impressions': 'sum', 'conversions': 'sum',
+            'adv_cost': 'sum', 'max_cost': 'sum', 'adv_value': 'sum',
+            'mnet_roas': 'mean', 'adv_roas': 'mean'
         }).reset_index()
         
         g['ctr'] = np.where(g['impressions']>0, 100*g['clicks']/g['impressions'], np.nan)
@@ -295,127 +290,140 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         g['cpa'] = np.where(g['conversions']>0, g['adv_cost']/g['conversions'], np.nan)
         g['mnet_roas'] = np.where(g['max_cost']>0, g['adv_value']/g['max_cost'], np.nan)
     
-    # Take top N by clicks first
+    # Take top N and sort
     g = g.nlargest(min(top_n, len(g)), 'clicks')
-    
-    # Sort by metric_sort (HIGHEST first for CTR, LOWEST first for CPA)
     if metric_sort == 'cpa':
-        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)  # Low CPA is best
+        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
     else:
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)  # High CTR/ROAS is best
+        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     
     label_col = col_name if col_name in g.columns else 'concepts'
     
-    # Calculate color thresholds
+    # Calculate color mapping
     avg = g[metric_color].mean()
     std = g[metric_color].std()
     min_val = g[metric_color].min()
     max_val = g[metric_color].max()
     
-    # Create hover text with ACTUAL clicks shown
+    # Create hover text
     if show_cvr_ctr:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
-            'Rank by ' + metric_sort.upper() + ': #' + (g.index + 1).astype(str) + '<br>' +
+            'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
-            'CVR: ' + g['cvr'].round(2).astype(str) + '% (Avg: ' + (str(round(avg_metrics['cvr'], 2)) if avg_metrics else str(round(g['cvr'].mean(), 2))) + '%)<br>' +
+            'CVR: ' + g['cvr'].round(2).astype(str) + '%<br>' +
             'CTR: ' + g['ctr'].round(2).astype(str) + '%'
         )
     else:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
-            'Rank by ' + metric_sort.upper() + ': #' + (g.index + 1).astype(str) + '<br>' +
+            'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CPA: $' + g['cpa'].round(2).astype(str) + '<br>' +
-            'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str)
+            'ROAS: ' + g['mnet_roas'].round(2).astype(str)
         )
     
-    # Add rank to labels with clicks
-    g['display_label'] = (g.index + 1).astype(str) + '. ' + g[label_col].astype(str) + '<br>(' + g['clicks'].astype(int).astype(str) + ' clicks)'
-    
-    color_min = max(0, min_val - 0.2 * std)
-    color_max = max_val + 0.2 * std
-    
-    # KEY CHANGE: Use LOG-SCALED clicks for sizing
-    # This gives visual weight difference while maintaining order
-    log_clicks = np.log1p(g['clicks'])  # log(1 + clicks) to handle small values
-    # Normalize log values to reasonable range (1-100) to maintain order
+    # Log-scale sizes for visual weight
+    log_clicks = np.log1p(g['clicks'])
     min_log = log_clicks.min()
     max_log = log_clicks.max()
     if max_log > min_log:
-        scaled_values = 1 + 99 * (log_clicks - min_log) / (max_log - min_log)
+        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log)
     else:
-        scaled_values = [50.0] * len(g)
+        g['normalized_size'] = 1.0
     
-    # Force ordering by creating sequential parent groups
-    num_items = len(g)
-    g['parent_group'] = ['G' + str(i).zfill(3) for i in range(num_items)]
+    # Calculate rectangle positions (LEFT TO RIGHT)
+    total_width = g['normalized_size'].sum()
+    x_positions = []
+    x_start = 0
+    for size in g['normalized_size']:
+        width = size / total_width
+        x_positions.append((x_start, x_start + width))
+        x_start += width
     
-    # Build data arrays
-    labels = []
-    parents = []
-    values = []
-    colors_list = []
-    hover_texts = []
-    customdata_list = []
+    # Color mapping function
+    def get_color(value):
+        if value >= avg + 0.5 * std:
+            return '#00cc00'  # Green
+        elif value >= avg:
+            return '#7FE57F'  # Light green
+        elif value >= avg - 0.5 * std:
+            return '#ffcc00'  # Yellow
+        elif value >= avg - std:
+            return '#ff9900'  # Orange
+        else:
+            return '#cc0000'  # Red
     
-    # Add items in sorted order
-    for idx, (_, row) in enumerate(g.iterrows()):
-        labels.append(row['display_label'])
-        parents.append('')  # All at root level for proper left-right flow
-        values.append(scaled_values.iloc[idx])
-        colors_list.append(row[metric_color])
-        hover_texts.append(row['hover_text'])
-        customdata_list.append(row[label_col])
+    # Create figure
+    fig = go.Figure()
     
-    fig = go.Figure(go.Treemap(
-        labels=labels,
-        parents=parents,
-        values=values,
-        marker=dict(
-            colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
-            cmid=avg,
-            cmin=color_min,
-            cmax=color_max,
-            colorbar=dict(title=metric_color.upper(), tickfont=dict(color='white')),
-            line=dict(width=2, color='#000')
-        ),
-        textposition='middle center',
-        textfont=dict(size=10, color='black', family='Arial Black'),
-        hovertext=hover_texts,
-        hoverinfo='text',
-        marker_colors=colors_list,
-        customdata=customdata_list,
-        branchvalues='total'
-    ))
+    # Add rectangles as shapes and invisible scatter for hover
+    for idx, row in g.iterrows():
+        x0, x1 = x_positions[idx]
+        color = get_color(row[metric_color])
+        
+        # Add rectangle
+        fig.add_shape(
+            type="rect",
+            x0=x0, x1=x1, y0=0, y1=1,
+            fillcolor=color,
+            line=dict(color='black', width=2),
+            layer='below'
+        )
+        
+        # Add text annotation
+        label_text = f"#{idx+1}. {row[label_col]}<br>({int(row['clicks'])} clicks)"
+        fig.add_annotation(
+            x=(x0 + x1) / 2,
+            y=0.5,
+            text=label_text,
+            showarrow=False,
+            font=dict(size=10, color='black', family='Arial Black'),
+            xanchor='center',
+            yanchor='middle'
+        )
+        
+        # Add invisible scatter point for hover
+        fig.add_trace(go.Scatter(
+            x=[(x0 + x1) / 2],
+            y=[0.5],
+            mode='markers',
+            marker=dict(size=20, opacity=0),
+            hovertext=row['hover_text'],
+            hoverinfo='text',
+            showlegend=False,
+            customdata=[row[label_col]]
+        ))
     
-    # Add aggregated stats annotation
+    # Add stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Best Left → Worst Right, Size = Log Clicks)"
+            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} DESC"
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} (Best Left → Worst Right, Size = Log Clicks)"
+            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} ASC"
         
         fig.add_annotation(
             text=stats_text,
             xref="paper", yref="paper",
-            x=0.5, y=-0.05,
+            x=0.5, y=-0.1,
             showarrow=False,
             font=dict(size=11, color='#5dade2', family='Arial Black'),
             align='center'
         )
-
+    
     fig.update_layout(
         title=dict(text=title, font=dict(size=16, color='#5dade2')),
         height=500,
         plot_bgcolor='#111',
         paper_bgcolor='#111',
         font=dict(color='white', size=12),
-        margin=dict(b=80)
+        xaxis=dict(visible=False, range=[0, 1]),
+        yaxis=dict(visible=False, range=[0, 1]),
+        margin=dict(l=20, r=20, t=80, b=100),
+        hovermode='closest'
     )
     
-    return fig
-# =========================================================
+    return fig# =========================================================
 # BUBBLE CHART
 # =========================================================
 def bubble_chart(g, x_col, metric, hover_map, title, top_n=5):
