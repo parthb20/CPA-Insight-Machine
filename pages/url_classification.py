@@ -270,7 +270,7 @@ def top3_urls(df, group_col):
 # TREEMAP FUNCTIONS
 # =========================================================
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
-    """Create custom treemap with guaranteed left-to-right ordering"""
+    """Create custom treemap with 2D layout for better readability"""
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
@@ -302,8 +302,6 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Calculate color mapping
     avg = g[metric_color].mean()
     std = g[metric_color].std()
-    min_val = g[metric_color].min()
-    max_val = g[metric_color].max()
     
     # Create hover text
     if show_cvr_ctr:
@@ -328,21 +326,18 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     min_log = log_clicks.min()
     max_log = log_clicks.max()
     if max_log > min_log:
-        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log)
+        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log) + 0.1
     else:
         g['normalized_size'] = 1.0
     
-    # Calculate rectangle positions (LEFT TO RIGHT)
-    total_width = g['normalized_size'].sum()
-    x_positions = []
-    x_start = 0
-    for size in g['normalized_size']:
-        width = size / total_width
-        x_positions.append((x_start, x_start + width))
-        x_start += width
+    # Calculate 2D layout using squarified algorithm
+    sizes = g['normalized_size'].tolist()
+    rectangles = squarify_layout(sizes, 0, 0, 1, 1)
     
     # Color mapping function
     def get_color(value):
+        if pd.isna(value):
+            return '#666666'
         if value >= avg + 0.5 * std:
             return '#00cc00'  # Green
         elif value >= avg:
@@ -357,50 +352,66 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Create figure
     fig = go.Figure()
     
-    # Add rectangles as shapes and invisible scatter for hover
-    for idx, row in g.iterrows():
-        x0, x1 = x_positions[idx]
+    # Add rectangles as shapes and clickable scatter points
+    for idx, (row, (x, y, w, h)) in enumerate(zip(g.iterrows(), rectangles)):
+        row = row[1]  # Get the actual row data
         color = get_color(row[metric_color])
         
         # Add rectangle
         fig.add_shape(
             type="rect",
-            x0=x0, x1=x1, y0=0, y1=1,
+            x0=x, x1=x+w, y0=y, y1=y+h,
             fillcolor=color,
-            line=dict(color='black', width=2),
+            line=dict(color='#000', width=2),
             layer='below'
         )
         
+        # Determine font size based on box size
+        box_area = w * h
+        if box_area > 0.15:
+            font_size = 11
+        elif box_area > 0.08:
+            font_size = 9
+        else:
+            font_size = 7
+        
         # Add text annotation
-        label_text = f"#{idx+1}. {row[label_col]}<br>({int(row['clicks'])} clicks)"
+        label_text = f"#{idx+1}<br>{str(row[label_col])[:30]}<br>({int(row['clicks'])})"
         fig.add_annotation(
-            x=(x0 + x1) / 2,
-            y=0.5,
+            x=x + w/2,
+            y=y + h/2,
             text=label_text,
             showarrow=False,
-            font=dict(size=10, color='black', family='Arial Black'),
+            font=dict(size=font_size, color='white', family='Arial Black'),
             xanchor='center',
-            yanchor='middle'
+            yanchor='middle',
+            bgcolor='rgba(0,0,0,0.3)',
+            borderpad=4
         )
         
-        # Add invisible scatter point for hover
+        # Add clickable scatter point covering the entire box
         fig.add_trace(go.Scatter(
-            x=[(x0 + x1) / 2],
-            y=[0.5],
+            x=[x + w/2],
+            y=[y + h/2],
             mode='markers',
-            marker=dict(size=20, opacity=0),
+            marker=dict(
+                size=max(w, h) * 500,  # Scale marker to cover box
+                opacity=0,
+                color=color
+            ),
             hovertext=row['hover_text'],
             hoverinfo='text',
             showlegend=False,
-            customdata=[row[label_col]]
+            customdata=[[row[label_col]]],  # Pass original label for drill-down
+            name=''
         ))
     
     # Add stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} DESC"
+            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} DESC | 💡 Click boxes to drill down"
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} ASC"
+            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} ASC | 💡 Click boxes to drill down"
         
         fig.add_annotation(
             text=stats_text,
@@ -413,17 +424,18 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     
     fig.update_layout(
         title=dict(text=title, font=dict(size=16, color='#5dade2')),
-        height=500,
+        height=600,
         plot_bgcolor='#111',
         paper_bgcolor='#111',
         font=dict(color='white', size=12),
         xaxis=dict(visible=False, range=[0, 1]),
         yaxis=dict(visible=False, range=[0, 1]),
         margin=dict(l=20, r=20, t=80, b=100),
-        hovermode='closest'
+        hovermode='closest',
+        clickmode='event+select'
     )
     
-    return fig# =========================================================
+    return fig
 # BUBBLE CHART
 # =========================================================
 def bubble_chart(g, x_col, metric, hover_map, title, top_n=5):
