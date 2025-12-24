@@ -296,17 +296,11 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         g['cpa'] = np.where(g['conversions']>0, g['adv_cost']/g['conversions'], np.nan)
         g['mnet_roas'] = np.where(g['max_cost']>0, g['adv_value']/g['max_cost'], np.nan)
     
-    # Sort by metric_sort DESCENDING and take top N by clicks
     # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
-# Then sort by metric_sort for left-to-right layout
-    if metric_sort in ['ctr', 'cvr', 'mnet_roas']:
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
-    elif metric_sort == 'cpa':
-        # Lower is better - lowest on LEFT
-        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
-    else:
-        g = g.sort_values('clicks', ascending=False).reset_index(drop=True)    
+    # Sort by metric_sort DESCENDING (HIGHEST on LEFT, decreasing to right)
+    g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
+    
     # Calculate color thresholds for metric_color
     avg = g[metric_color].mean()
     std = g[metric_color].std()
@@ -854,20 +848,11 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     html.H4("Sprig URL Top Categories - Treemaps (Top 10, click to drill-down to full category)", style={'color': '#17a2b8', 'marginTop': '20px'}),
     dcc.Loading(dcc.Graph(id='treemap_url_top_cvr_ctr'), type="circle", color="#5dade2"),
     dcc.Loading(dcc.Graph(id='treemap_url_top_roas_cpa'), type="circle", color="#5dade2"),
-    html.Hr(style={'borderColor': '#444'}),
-    html.H4("Sprig Domain Top Categories - Treemaps (Top 10, click to drill-down to full category)", style={'color': '#17a2b8', 'marginTop': '20px'}),
-    dcc.Loading(dcc.Graph(id='treemap_dom_top_cvr_ctr'), type="circle", color="#5dade2"),
-    dcc.Loading(dcc.Graph(id='treemap_dom_top_roas_cpa'), type="circle", color="#5dade2"),
-    html.Hr(style={'borderColor': '#444'}),
     html.H4("Sprig URL Final Categories - Treemaps (Top 10, click to drill-down to full category)", style={'color': '#17a2b8', 'marginTop': '20px'}),
     dcc.Loading(dcc.Graph(id='treemap_url_final_cvr_ctr'), type="circle", color="#5dade2"),
     dcc.Loading(dcc.Graph(id='treemap_url_final_roas_cpa'), type="circle", color="#5dade2"),
     html.Hr(style={'borderColor': '#444'}),
-    html.H4("Sprig Domain Final Categories - Treemaps (Top 10, click to drill-down to full category)", style={'color': '#17a2b8', 'marginTop': '20px'}),
-    dcc.Loading(dcc.Graph(id='treemap_dom_final_cvr_ctr'), type="circle", color="#5dade2"),
-    dcc.Loading(dcc.Graph(id='treemap_dom_final_roas_cpa'), type="circle", color="#5dade2"),
-    html.Hr(style={'borderColor': '#444'}),
-
+    
     # BUBBLE CHARTS - Sprig URL & Domain (Top) - 2x2
 ])
 
@@ -971,12 +956,8 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
      Output('contextuality_table', 'data'),
      Output('treemap_url_top_cvr_ctr', 'figure'),
      Output('treemap_url_top_roas_cpa', 'figure'),
-     Output('treemap_dom_top_cvr_ctr', 'figure'),
-     Output('treemap_dom_top_roas_cpa', 'figure'),
      Output('treemap_url_final_cvr_ctr', 'figure'),
-     Output('treemap_url_final_roas_cpa', 'figure'),
-     Output('treemap_dom_final_cvr_ctr', 'figure'),
-     Output('treemap_dom_final_roas_cpa', 'figure')],
+     Output('treemap_url_final_roas_cpa', 'figure')],
     [Input('adv_dd','value'),
      Input('camp_type_dd','value'),
      Input('camp_dd','value'),
@@ -1039,9 +1020,7 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
         
         # Sprig aggregations
         g_url_top = weighted_aggregate(d, 'sprig_url_top')
-        g_dom_top = weighted_aggregate(d, 'sprig_domain_top')
         g_url_final = weighted_aggregate(d, 'sprig_url_final')
-        g_dom_final = weighted_aggregate(d, 'sprig_domain_final')
         
         # Stats display
         stats_display = create_stats_display(total_clicks, total_conversions, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas)
@@ -1144,12 +1123,8 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
         # Sprig treemaps
         tree_url_top_cvr_ctr = create_treemap(g_url_top, 'cvr', 'ctr', 'Sprig URL Top: CVR vs CTR', True, 10, 'sprig_url_top', avg_metrics)
         tree_url_top_roas_cpa = create_treemap(g_url_top, 'mnet_roas', 'cpa', 'Sprig URL Top: ROAS vs CPA', False, 10, 'sprig_url_top', avg_metrics)
-        tree_dom_top_cvr_ctr = create_treemap(g_dom_top, 'cvr', 'ctr', 'Sprig Domain Top: CVR vs CTR', True, 10, 'sprig_domain_top', avg_metrics)
-        tree_dom_top_roas_cpa = create_treemap(g_dom_top, 'mnet_roas', 'cpa', 'Sprig Domain Top: ROAS vs CPA', False, 10, 'sprig_domain_top', avg_metrics)
         tree_url_final_cvr_ctr = create_treemap(g_url_final, 'cvr', 'ctr', 'Sprig URL Final: CVR vs CTR', True, 10, 'sprig_url_final', avg_metrics)
         tree_url_final_roas_cpa = create_treemap(g_url_final, 'mnet_roas', 'cpa', 'Sprig URL Final: ROAS vs CPA', False, 10, 'sprig_url_final', avg_metrics)
-        tree_dom_final_cvr_ctr = create_treemap(g_dom_final, 'cvr', 'ctr', 'Sprig Domain Final: CVR vs CTR', True, 10, 'sprig_domain_final', avg_metrics)
-        tree_dom_final_roas_cpa = create_treemap(g_dom_final, 'mnet_roas', 'cpa', 'Sprig Domain Final: ROAS vs CPA', False, 10, 'sprig_domain_final', avg_metrics)
         
         return (
             stats_display,
@@ -1157,9 +1132,7 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
             dynamic_concepts_display, dynamic_urls_display,  # Changed
             ctx_table_data,
             tree_url_top_cvr_ctr, tree_url_top_roas_cpa,
-            tree_dom_top_cvr_ctr, tree_dom_top_roas_cpa,
             tree_url_final_cvr_ctr, tree_url_final_roas_cpa,
-            tree_dom_final_cvr_ctr, tree_dom_final_roas_cpa
         )
         
     except Exception as e:
@@ -1178,22 +1151,14 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
      Output("treemap_roas_cpa", "clickData"),
      Output("treemap_url_top_cvr_ctr", "clickData"),
      Output("treemap_url_top_roas_cpa", "clickData"),
-     Output("treemap_dom_top_cvr_ctr", "clickData"),
-     Output("treemap_dom_top_roas_cpa", "clickData"),
      Output("treemap_url_final_cvr_ctr", "clickData"),
-     Output("treemap_url_final_roas_cpa", "clickData"),
-     Output("treemap_dom_final_cvr_ctr", "clickData"),
-     Output("treemap_dom_final_roas_cpa", "clickData")],
+     Output("treemap_url_final_roas_cpa", "clickData")],
     [Input("treemap_cvr_ctr", "clickData"),
      Input("treemap_roas_cpa", "clickData"),
      Input("treemap_url_top_cvr_ctr", "clickData"),
      Input("treemap_url_top_roas_cpa", "clickData"),
-     Input("treemap_dom_top_cvr_ctr", "clickData"),
-     Input("treemap_dom_top_roas_cpa", "clickData"),
      Input("treemap_url_final_cvr_ctr", "clickData"),
      Input("treemap_url_final_roas_cpa", "clickData"),
-     Input("treemap_dom_final_cvr_ctr", "clickData"),
-     Input("treemap_dom_final_roas_cpa", "clickData"),
      Input("close_modal", "n_clicks"),
      Input('adv_dd','value'),
      Input('camp_type_dd','value'),
@@ -1448,5 +1413,96 @@ def toggle_contextuality_rows(active_cell, table_data, expanded_rows, advs, camp
                         new_data.append(detail_row)
             else:
                 new_data.append(row)
+        
+        return new_data, expanded_rows
+    
+@callback(
+    [Output('dynamic_concepts_table', 'data', allow_duplicate=True),
+     Output('concept_expanded_rows', 'data')],
+    [Input('dynamic_concepts_table', 'active_cell')],
+    [State('dynamic_concepts_table', 'data'),
+     State('concept_expanded_rows', 'data'),
+     State('adv_dd','value'),
+     State('camp_type_dd','value'),
+     State('camp_dd','value')],
+    prevent_initial_call=True
+)
+def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types, camps):
+    """Toggle expansion of concept rows to show compound words"""
+    
+    if not active_cell or not table_data:
+        raise dash.exceptions.PreventUpdate
+    
+    clicked_row_idx = active_cell['row']
+    if clicked_row_idx >= len(table_data):
+        raise dash.exceptions.PreventUpdate
+        
+    clicked_row = table_data[clicked_row_idx]
+    
+    # Only process main rows
+    if clicked_row.get('row_type') != 'main':
+        raise dash.exceptions.PreventUpdate
+    
+    concept = clicked_row['concepts']
+    
+    # Toggle expansion
+    if concept in expanded_rows:
+        # Collapse
+        expanded_rows.remove(concept)
+        new_data = [row for row in table_data if row.get('parent_concept') != concept]
+        return new_data, expanded_rows
+    else:
+        # Expand
+        expanded_rows.append(concept)
+        
+        # Get compound words containing this concept
+        d = filter_dataframe(df, advs, camp_types, camps)
+        d_filtered = d[d['concepts'].apply(lambda x: concept in x if isinstance(x, list) else False)].copy()
+        
+        # Find compound words
+        compound_words = []
+        for concepts_list in d_filtered['concepts']:
+            if isinstance(concepts_list, list):
+                compound_words.extend([c for c in concepts_list if ' ' in c and concept in c])
+        
+        compound_counts = Counter(compound_words)
+        
+        # Get top 3 URLs for each compound word
+        new_data = []
+        for row in table_data:
+            new_data.append(row)
+            if row['concepts'] == concept and row.get('row_type') == 'main':
+                # Add compound word rows
+                for compound, count in compound_counts.most_common(10):
+                    d_compound = d_filtered[d_filtered['concepts'].apply(
+                        lambda x: compound in x if isinstance(x, list) else False)]
+                    
+                    # Get top 3 URLs by clicks
+                    top_urls = (d_compound.groupby('url')['clicks'].sum()
+                               .nlargest(3)
+                               .to_dict())
+                    
+                    urls_str = "\n".join([f"{i+1}. {url[:50]}... ({clicks} clicks)" 
+                                         for i, (url, clicks) in enumerate(top_urls.items())])
+                    
+                    # Aggregate stats for compound word
+                    total_clicks = d_compound['clicks'].sum()
+                    total_conv = d_compound['conversions'].sum()
+                    cvr = (total_conv / total_clicks * 100) if total_clicks > 0 else 0
+                    
+                    detail_row = {
+                        'concepts': f"  ↳ {compound}",
+                        'clicks': int(total_clicks),
+                        'conversions': round(total_conv, 2),
+                        'cvr': round(cvr, 2),
+                        'avg_cvr': '',
+                        'ctr': '',
+                        'cpa': '',
+                        'mnet_roas': '',
+                        'row_type': 'detail',
+                        'parent_concept': concept,
+                        '_tooltip': urls_str  # Top 3 URLs
+                    }
+                    new_data.append(detail_row)
         
         return new_data, expanded_rows
