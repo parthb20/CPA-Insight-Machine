@@ -270,7 +270,7 @@ def top3_urls(df, group_col):
 # TREEMAP FUNCTIONS
 # =========================================================
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
-    # Filter to top 10 by clicks BEFORE passing to create_treemap
+    """Create treemap with forced ordering by using equal-sized blocks"""
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
@@ -290,7 +290,6 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'adv_roas': 'mean'
         }).reset_index()
         
-        # Recalculate metrics
         g['ctr'] = np.where(g['impressions']>0, 100*g['clicks']/g['impressions'], np.nan)
         g['cvr'] = np.where(g['clicks']>0, 100*g['conversions']/g['clicks'], np.nan)
         g['cpa'] = np.where(g['conversions']>0, g['adv_cost']/g['conversions'], np.nan)
@@ -299,25 +298,25 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Take top N by clicks first
     g = g.nlargest(min(top_n, len(g)), 'clicks')
     
-    # Sort by metric_sort DESCENDING (HIGHEST first)
-    g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
+    # Sort by metric_sort DESCENDING (HIGHEST first for CTR, LOWEST first for CPA)
+    if metric_sort == 'cpa':
+        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)  # Low CPA is best
+    else:
+        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)  # High CTR/ROAS is best
     
-    # Add rank prefix to labels for explicit ordering
     label_col = col_name if col_name in g.columns else 'concepts'
-    g['rank'] = range(1, len(g) + 1)
-    g['display_label'] = g['rank'].astype(str) + '. ' + g[label_col].astype(str)
     
-    # Calculate color thresholds for metric_color
+    # Calculate color thresholds
     avg = g[metric_color].mean()
     std = g[metric_color].std()
     min_val = g[metric_color].min()
     max_val = g[metric_color].max()
     
-    # Create hover text based on treemap type
+    # Create hover text with ACTUAL clicks shown
     if show_cvr_ctr:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
-            'Rank by ' + metric_sort.upper() + ': #' + g['rank'].astype(str) + '<br>' +
+            'Rank by ' + metric_sort.upper() + ': #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CVR: ' + g['cvr'].round(2).astype(str) + '% (Avg: ' + (str(round(avg_metrics['cvr'], 2)) if avg_metrics else str(round(g['cvr'].mean(), 2))) + '%)<br>' +
             'CTR: ' + g['ctr'].round(2).astype(str) + '%'
@@ -325,20 +324,26 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     else:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
-            'Rank by ' + metric_sort.upper() + ': #' + g['rank'].astype(str) + '<br>' +
+            'Rank by ' + metric_sort.upper() + ': #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CPA: $' + g['cpa'].round(2).astype(str) + '<br>' +
             'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str)
         )
     
+    # Add rank to labels
+    g['display_label'] = (g.index + 1).astype(str) + '. ' + g[label_col].astype(str) + '<br>(' + g['clicks'].astype(int).astype(str) + ' clicks)'
+    
     color_min = max(0, min_val - 0.2 * std)
     color_max = max_val + 0.2 * std
     
-    # Use clicks as values (actual size), but rely on rank prefix for visual ordering
+    # KEY CHANGE: Use EQUAL values (1.0 for each) so blocks are same size
+    # This forces left-to-right ordering based on our sort
+    equal_values = [1.0] * len(g)
+    
     fig = go.Figure(go.Treemap(
         labels=g['display_label'],
         parents=[''] * len(g),
-        values=g['clicks'],  # Use actual clicks for sizing
+        values=equal_values,  # ← EQUAL SIZES FOR ALL BLOCKS
         marker=dict(
             colorscale=[[0, '#cc0000'], [0.5, '#ffcc00'], [1, '#00cc00']],
             cmid=avg,
@@ -348,20 +353,20 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             line=dict(width=2, color='#000')
         ),
         textposition='middle center',
-        textfont=dict(size=12, color='black', family='Arial Black'), 
+        textfont=dict(size=10, color='black', family='Arial Black'),
         hovertext=g['hover_text'],
         hoverinfo='text',
         marker_colors=g[metric_color],
-        customdata=g[label_col],  # Store original label for click handling
+        customdata=g[label_col],
         branchvalues='total'
     ))
     
     # Add aggregated stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Highest → Lowest)"
+            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} (Best Left → Worst Right)"
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()}"
+            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | Mnet ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} (Best Left → Worst Right)"
         
         fig.add_annotation(
             text=stats_text,
