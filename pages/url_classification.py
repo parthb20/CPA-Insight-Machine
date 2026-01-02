@@ -222,16 +222,18 @@ df['concepts'] = df['url'].apply(extract_concepts)
 all_concepts = [c for concepts in df['concepts'] for c in concepts]
 concept_counts = Counter(all_concepts)
 valid_concepts = {c for c, count in concept_counts.items() if count >= 5}
+df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 df['concepts'] = df['concepts'].apply(lambda x: [c for c in x if c in valid_concepts])
 
-# Create exploded version
-df_concepts = df.explode('concepts').dropna(subset=['concepts'])
 
 # Map the column name first
 if 'URL-Concept Contextuality' in df.columns and 'contextuality' not in df.columns:
     df['contextuality'] = df['URL-Concept Contextuality']
 
-df_contextuality = df[df['contextuality'].notna()].copy()
+if 'contextuality' in df.columns:
+    df_contextuality = df[df['contextuality'].notna()].copy()
+else:
+    df_contextuality = pd.DataFrame() 
     
 def filter_dataframe(d, advs, camp_types, camps):
     mask = pd.Series(True, index=d.index)  # Start with all True
@@ -512,161 +514,6 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     )
     
     return fig
-# BUBBLE CHART
-# =========================================================
-def bubble_chart(g, x_col, metric, hover_map, title, top_n=5):
-    g = g.dropna(subset=[metric])
-    if len(g) == 0:
-        fig = go.Figure()
-        fig.update_layout(title=f"No data", plot_bgcolor='#111', paper_bgcolor='#111', font=dict(color='white'))
-        return fig
-    
-    # Filter to top N by clicks
-    g = g.nlargest(top_n, 'clicks').reset_index(drop=True)
-    
-    g['top_urls'] = g[x_col].map(hover_map)
-    
-    # Calculate statistics
-    avg = g[metric].mean()
-    std = g[metric].std()
-    
-    # Create hover text
-    g['hover_text'] = (
-        '<b>' + g[x_col].astype(str) + '</b><br>' +
-        'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
-        'Conversions: ' + g['conversions'].round(2).astype(str) + '<br>' +
-        'CVR: ' + g['cvr'].round(2).astype(str) + '%<br>' +
-        'CTR: ' + g['ctr'].round(2).astype(str) + '%<br>' +
-        'CPA: ' + g['cpa'].round(2).astype(str) + '<br>' +
-        'Mnet ROAS: ' + g['mnet_roas'].round(2).astype(str) + '<br><br>' +
-        '<b>Top 3 URLs:</b><br>' + g['top_urls']
-    )
-    
-    # Use soft, aesthetic colors (pastel and muted tones)
-    soft_colors = ['#87CEEB', '#98D8C8', '#F7DC6F', '#BB8FCE', '#F8B88B', 
-                   '#85C1E2', '#52B2BF', '#F9E79F', '#AED6F1', '#FAD7A0']
-    color_indices = np.arange(len(g)) % len(soft_colors)
-    bubble_colors = [soft_colors[i] for i in color_indices]
-    
-    fig = go.Figure()
-    
-    # Calculate bubble sizes - make them larger and more spread out
-# Calculate bubble sizes - make them larger and more spread out
-    # Calculate bubble sizes using logarithmic scaling for better visual distribution
-    # Calculate bubble sizes with adjusted scaling for better visibility
-    # Use logarithmic scaling for better size distribution
-    max_size = 80
-    min_size = 35
-    if g['clicks'].max() > g['clicks'].min():
-    # Use log scaling with smoothing to prevent extreme differences
-        log_clicks = np.log1p(g['clicks'])  # log(1+x) to handle small values
-        sizes = (log_clicks - log_clicks.min()) / (log_clicks.max() - log_clicks.min()) * (max_size - min_size) + min_size
-    else:
-        sizes = [max_size] * len(g)
-
-# Store sizes for later use in y-axis calculation
-    bubble_sizes = sizes
-    fig.add_trace(go.Scatter(
-        x=list(range(len(g))),  # Use indices for better spacing
-        y=g[metric],
-        mode='markers',  # Remove text mode
-        marker=dict(
-            size=sizes,
-            color=bubble_colors,
-            line=dict(width=3, color='white'),
-            opacity=0.9
-        ),
-        text=g['hover_text'],
-        hoverinfo='text',
-        hoverlabel=dict(
-            bgcolor='#222',
-            font_size=12,
-            font_color='white',
-            align='left',
-            namelength=-1
-        )
-    ))
-    
-    # Determine y-axis range - Allow negative values and show bubbles fully
-    # Determine y-axis range - Account for bubble sizes to avoid cutting
-    min_val = g[metric].min()
-    max_val = g[metric].max()
-    data_range = max_val - min_val if max_val != min_val else 1
-
-# Convert largest bubble size from pixels to data units
-# Assuming chart height of 600px, calculate percentage of data range
-    max_bubble_radius = max(bubble_sizes) / 2  # radius in pixels
-    chart_height_px = 600
-    bubble_percentage = max_bubble_radius / chart_height_px
-    range_buffer = data_range * bubble_percentage * 2.5  # 2.5x for safe margin
-    
-    if metric in ['cvr', 'ctr']:
-        y_min = min_val - range_buffer
-        y_max = min(100, max_val + range_buffer)
-    
-    elif metric == 'cpa':
-        # CPA can show slightly negative for buffer
-        y_min = min_val - range_buffer
-        y_max = max_val + range_buffer
-    elif metric == 'mnet_roas':
-        # ROAS can be any value
-        y_min = min(0, min_val - range_buffer)
-        y_max = max_val + range_buffer
-    else:
-        y_min = min(0, min_val - range_buffer)
-        y_max = max_val + range_buffer
-    
-    # Add reference lines with better labels
-    fig.add_hline(y=avg, line_dash='solid', line_color='#ffffff', line_width=4, 
-                  annotation_text='Avg', annotation_position='right',
-                  annotation=dict(font=dict(size=13, color='#ffffff', family='Arial Black')))
-    fig.add_hline(y=avg+std, line_dash='dash', line_color='#00ffff', line_width=4,
-                  annotation_text='Avg +1σ', annotation_position='right',
-                  annotation=dict(font=dict(size=13, color='#00ffff', family='Arial Black')))
-    
-    # Only show Avg -1σ if it's within the visible range
-    if avg - std >= y_min and avg - std <= y_max:
-        fig.add_hline(y=avg-std, line_dash='dash', line_color='#ff00ff', line_width=4,
-                      annotation_text='Avg -1σ', annotation_position='right',
-                      annotation=dict(font=dict(size=13, color='#ff00ff', family='Arial Black')))
-    
-    # Create custom x-axis labels
-    x_labels = [f"{i+1}. {str(cat)[:30]}..." if len(str(cat)) > 30 else f"{i+1}. {cat}" 
-                for i, cat in enumerate(g[x_col])]
-    
-    fig.update_layout(
-        title=dict(text=title, font=dict(size=15, color='#5dade2')),
-        showlegend=False,
-        plot_bgcolor='#111',
-        paper_bgcolor='#111',
-        font=dict(color='white'),
-        xaxis_title=None,
-        yaxis_title=metric.upper(),
-        height=600,
-        margin=dict(l=80, r=80, t=80, b=120),  # More spacious margins
-        hovermode='closest',
-        hoverlabel=dict(
-            bgcolor='#222',
-            font_size=12,
-            font_color='white'
-        )
-    )
-    fig.update_xaxes(
-        tickmode='array',
-        tickvals=list(range(len(g))),
-        ticktext=x_labels,
-        tickangle=-45,
-        showgrid=False,
-        tickfont=dict(size=10)
-    )
-    fig.update_yaxes(
-        showgrid=True, 
-        gridcolor='#333',
-        range=[y_min, y_max],
-        type='linear'
-    )
-    
-    return fig
 
 # =========================================================
 # PRE-COMPUTE OPTIONS
@@ -744,6 +591,19 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
 
     # TREEMAPS - FULL WIDTH, ONE BELOW OTHER with drill-down modal
     html.H4("Concept Analysis - Treemaps (Top 10, click to drill-down)", style={'color': '#17a2b8', 'marginTop': '20px'}),
+    # Add after the treemap title, before the treemaps
+    dbc.Row([
+        dbc.Col([
+            html.Label("Filter by Concept:", style={'color': 'white'}),
+            dcc.Dropdown(
+                id='concept_filter_dd',
+                multi=False,
+                placeholder="All concepts",
+                options=[],
+                style={'color': 'black'}
+                )
+            ], width=3)
+        ], style={'marginBottom': '15px'}),
     dcc.Loading(
         dcc.Graph(id='treemap_cvr_ctr', clickData=None),
         type="circle",  # or "default", "dot", "cube"
@@ -1130,7 +990,7 @@ def update_concept_filter_options(advs, camp_types, camps):
      Input('sprig_count','value'),
     Input('concept_filter_dd', 'value')]  # ← ADD THIS LINE
 )
-def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count, concept_filter):  # ← ADD concept_filter 
+def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count, concept_filter):
     try:
         if sprig_count is None:
             sprig_count = 5
@@ -1152,11 +1012,7 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
         d_contextuality = filter_dataframe(df_contextuality, advs, camp_types, camps)
         d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)  # ← FIXED
         if concept_filter:
-            d_concepts = d_concepts[
-                d_concepts['concepts'].apply(
-                    lambda x: concept_filter in x if isinstance(x, str) else False
-                )
-            ]
+            d_concepts = d_concepts[d_concepts['concepts'] == concept_filter]
         
         # Early return if no data
         if len(d) == 0:
