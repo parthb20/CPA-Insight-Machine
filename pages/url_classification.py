@@ -287,8 +287,8 @@ def top3_urls(df, group_col):
 # =========================================================
 def squarified_layout(sizes, x, y, width, height):
     """
-    Squarified treemap layout algorithm
-    Creates rectangles with better aspect ratios, arranged by size (largest first)
+    Squarified treemap layout - arranges items top-to-bottom, left-to-right
+    Assumes items are already sorted by performance metric (best first)
     """
     if not sizes or len(sizes) == 0:
         return []
@@ -329,24 +329,32 @@ def squarified_layout(sizes, x, y, width, height):
             rectangles.append((x + covered_width, y, rect_width, height))
             covered_width += rect_width
     
-    # Simple row-by-row layout for better visual order
+    # Arrange items in rows from top to bottom
+    # Items are already sorted (best first), so top row = best performers
     remaining = list(sizes)
     current_y = y
-    items_per_row = 3  # Show 3 items per row for better proportions
+    items_per_row = 3
     
-    while remaining:
+    # Calculate total for ALL items
+    total_all = sum(sizes)
+    
+    while remaining and current_y < y + height:
+        # Take items for this row
         row_items = remaining[:items_per_row]
         remaining = remaining[items_per_row:]
         
+        # Row height proportional to row's total size
         row_total = sum(row_items)
-        total_remaining = sum(remaining) + row_total
-        
-        if total_remaining > 0:
-            row_height = (row_total / total_remaining) * height if remaining else height - (current_y - y)
+        if total_all > 0:
+            row_height = (row_total / total_all) * height
         else:
             row_height = height / max(1, (len(sizes) + items_per_row - 1) // items_per_row)
         
-        layout_row(row_items, x, current_y, width, min(row_height, height - (current_y - y)))
+        # Make sure we don't exceed bounds
+        row_height = min(row_height, height - (current_y - y))
+        
+        # Layout this row
+        layout_row(row_items, x, current_y, width, row_height)
         current_y += row_height
     
     return rectangles
@@ -1382,12 +1390,16 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     ctx = dash.callback_context
     if not ctx.triggered:
         raise dash.exceptions.PreventUpdate
-    
+        
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # DEBUG: Print what was clicked
+    print(f"🔍 Clicked: {trigger_id}")
+    print(f"🔍 Click data: {click_cvr if trigger_id == 'treemap_cvr_ctr' else click_roas if trigger_id == 'treemap_roas_cpa' else 'other'}")
     
     # Close modal and clear ALL clickData
     if trigger_id == "close_modal":
-        return False, "", go.Figure(), None, None, None, None, None, None
+        return False, "", go.Figure(), None, None, None, None, None, None    
     
     # Determine which treemap was clicked
     click_data = None
@@ -1430,12 +1442,23 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         return False, "", go.Figure(), None, None, None, None, None, None
     
     # Get original label from customdata
-    clicked_value = click_data['points'][0].get('customdata', '')
+    clicked_value = click_data['points'][0].get('customdata', [])
+    if isinstance(clicked_value, list) and len(clicked_value) > 0:
+        clicked_value = clicked_value[0]
+    elif not clicked_value:
+        # Fallback: extract from hovertext
+        hover_text = click_data['points'][0].get('hovertext', '')
+        if hover_text:
+            # Extract concept from hover text (first line after <b> tag)
+            import re
+            match = re.search(r'<b>(.*?)</b>', hover_text)
+            clicked_value = match.group(1) if match else ''
+    
+    print(f"🎯 Extracted clicked value: {clicked_value}")
+    
     if not clicked_value:
-        # Fallback: extract from label (remove rank and clicks)
-        label = click_data['points'][0].get('label', '')
-        # Remove "1. " prefix and "(XXX clicks)" suffix
-        clicked_value = label.split('. ', 1)[-1].split('<br>')[0] if '. ' in label else label.split('<br>')[0]
+        print("❌ No clicked value found!")
+        return False, "", go.Figure(), None, None, None, None, None, None
         
     # Filter data based on filters
     d = filter_dataframe(df, advs, camp_types, camps)
