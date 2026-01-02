@@ -318,47 +318,41 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     
     # CRITICAL: Sort by metric_sort for left-to-right ordering
     if metric_sort == 'cpa':
-        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)  # Lower CPA is better
+        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
     else:
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)  # Higher is better
+        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     
     label_col = col_name if col_name in g.columns else 'concepts'
     
     # Calculate color mapping
     avg = g[metric_color].mean()
     std = g[metric_color].std()
-    min_val = g[metric_color].min()
-    max_val = g[metric_color].max()
     
-    # Color function - improved gradient
+    # Color function
     def get_color(value):
-        """Generate color based on value relative to average"""
         if pd.isna(value):
             return '#666666'
         
-        # For CPA and CVR/CTR, use different logic
         if metric_color == 'cpa':
-            # Lower is better for CPA
             if value <= avg - std:
-                return '#00cc00'  # Dark green (very low CPA)
+                return '#00cc00'
             elif value <= avg:
-                return '#99ff99'  # Light green
+                return '#99ff99'
             elif value <= avg + std:
-                return '#ffcc00'  # Yellow
+                return '#ffcc00'
             else:
-                return '#ff3333'  # Red (high CPA)
+                return '#ff3333'
         else:
-            # Higher is better for CVR/CTR/ROAS
             if value >= avg + std:
-                return '#00cc00'  # Dark green (very high)
+                return '#00cc00'
             elif value >= avg:
-                return '#99ff99'  # Light green
+                return '#99ff99'
             elif value >= avg - std:
-                return '#ffcc00'  # Yellow
+                return '#ffcc00'
             else:
-                return '#ff3333'  # Red (low)
+                return '#ff3333'
     
-    # Create hover text with proper decimal formatting
+    # Create hover text
     if show_cvr_ctr:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
@@ -378,7 +372,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             '💡 Click to drill-down'
         )
     
-    # Use log-scaled sizes for better visual distribution
+    # Use log-scaled sizes
     g['log_clicks'] = np.log1p(g['clicks'])
     total_log = g['log_clicks'].sum()
     g['size_ratio'] = g['log_clicks'] / total_log
@@ -386,37 +380,29 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Create figure
     fig = go.Figure()
     
-    # Tight packing algorithm - fill rows completely
-    num_items = len(g)
-    
-    # Calculate optimal layout
+    # Layout algorithm - START FROM TOP
     current_x = 0
-    current_y = 0
+    current_y = 1.0
     row_height = 0
     max_width = 1.0
-    gap = 0.01  # Minimal gap between boxes
+    gap = 0.01
     
     for idx, (_, row) in enumerate(g.iterrows()):
-        # Calculate box dimensions based on size ratio
-        # Width proportional to log(clicks), height fills available space
-        box_width = max(0.15, min(0.4, row['size_ratio'] * 3))  # Limit width range
-        box_height = 0.28  # Fixed height for uniform rows
+        box_width = max(0.15, min(0.4, row['size_ratio'] * 3))
+        box_height = 0.28
         
-        # Check if we need to wrap to next row
+        # Wrap to next row if needed
         if current_x + box_width > max_width and current_x > 0:
             current_x = 0
-            current_y += row_height + gap
+            current_y -= (row_height + gap)
             row_height = 0
         
         x = current_x
-        y = current_y
+        y = current_y - box_height
         w = box_width
         h = box_height
         
-        # Update row height
         row_height = max(row_height, h)
-        
-        # Get color
         color = get_color(row[metric_color])
         
         # Add rectangle
@@ -428,7 +414,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             layer='below'
         )
         
-        # Determine font size based on box size
+        # Font size and color
         box_area = w * h
         if box_area > 0.08:
             font_size = 13
@@ -440,7 +426,13 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             font_size = 9
             show_full = False
         
-        # Create label with proper decimal formatting
+        # Dynamic font color
+        if color in ['#00cc00', '#ff3333']:
+            font_color = 'white'
+        else:
+            font_color = 'black'
+        
+        # Create label
         rank = f"#{idx+1}"
         concept_name = str(row[label_col])[:30] if len(str(row[label_col])) > 30 else str(row[label_col])
         
@@ -450,24 +442,23 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             else:
                 label_text = f"{rank}: {concept_name}<br>Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.2f} | ROAS: {row['mnet_roas']:.2f}"
         else:
-            # Compact version for small boxes
             if show_cvr_ctr:
                 label_text = f"{rank}: {concept_name[:15]}<br>{int(row['clicks'])} cl<br>{row['cvr']:.2f}%"
             else:
                 label_text = f"{rank}: {concept_name[:15]}<br>{int(row['clicks'])} cl<br>${row['cpa']:.2f}"
         
-        # Add label annotation
+        # Add label
         fig.add_annotation(
             x=x + w/2, y=y + h/2,
             text=label_text,
             showarrow=False,
-            font=dict(size=font_size, color='white', family='Arial Black'),
+            font=dict(size=font_size, color=font_color, family='Arial Black'),
             xanchor='center', yanchor='middle',
-            bgcolor='rgba(0,0,0,0.5)',
+            bgcolor='rgba(0,0,0,0.3)',
             borderpad=4
         )
         
-        # Add clickable scatter point
+        # Add clickable point
         fig.add_trace(go.Scatter(
             x=[x + w/2], y=[y + h/2],
             mode='markers',
@@ -479,7 +470,6 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             name=''
         ))
         
-        # Move to next position
         current_x += w + gap
     
     # Add stats annotation
@@ -514,7 +504,6 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     )
     
     return fig
-
 # =========================================================
 # PRE-COMPUTE OPTIONS
 # =========================================================
@@ -936,26 +925,6 @@ def format_table_data(df_input, agg_cvr, agg_ctr, agg_cpa, agg_mnet_roas, col_na
     return df[[col_name, 'clicks', 'conversions', 'cvr', 'avg_cvr', 'cvr_vs_avg', 'ctr', 'ctr_vs_avg', 'cpa', 'cpa_vs_avg', 'mnet_roas', 'mnet_roas_vs_avg', 'adv_roas', 'adv_cost', 'max_cost']].round(2).to_dict('records')
 
 @callback(
-    Output('concept_filter_dd', 'options'),
-    [Input('adv_dd','value'),
-     Input('camp_type_dd','value'),
-     Input('camp_dd','value')]
-)
-def update_concept_filter_options(advs, camp_types, camps):
-    """Populate concept filter dropdown with single-word concepts"""
-    d = filter_dataframe(df, advs, camp_types, camps)
-    d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)
-    
-    # Get all single-word concepts (no spaces)
-    all_concepts = [c for concepts in d_concepts['concepts'] for c in concepts if isinstance(c, str) and ' ' not in c]
-    concept_counts = Counter(all_concepts)
-    
-    # Only show concepts with at least 10 clicks
-    valid_concepts = sorted([c for c, count in concept_counts.items() if count >= 10])
-    
-    return [{'label': c, 'value': c} for c in valid_concepts]
-
-@callback(
     [Output('agg_stats', 'children'),
      Output('treemap_cvr_ctr', 'figure'),
      Output('treemap_roas_cpa', 'figure'),
@@ -975,10 +944,10 @@ def update_concept_filter_options(advs, camp_types, camps):
      Input('url_table_type', 'value'),     # ← ADD THIS
      Input('url_table_count', 'value'),    # ← ADD THIS
      Input('url_table_sort', 'value'),
-     Input('sprig_count','value'),
-    Input('concept_filter_dd', 'value')]  # ← ADD THIS LINE
+     Input('sprig_count','value')
+     ]  # ← ADD THIS LINE
 )
-def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count, concept_filter):
+def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url_table_type, url_table_count, url_table_sort, sprig_count):
     try:
         if sprig_count is None:
             sprig_count = 5
@@ -999,8 +968,6 @@ def update_all(advs, camp_types, camps, table_type, table_count, table_sort, url
         d = filter_dataframe(df, advs, camp_types, camps)
         d_contextuality = filter_dataframe(df_contextuality, advs, camp_types, camps)
         d_concepts = filter_dataframe(df_concepts, advs, camp_types, camps)  # ← FIXED
-        if concept_filter:
-            d_concepts = d_concepts[d_concepts['concepts'] == concept_filter]
         
         # Early return if no data
         if len(d) == 0:
