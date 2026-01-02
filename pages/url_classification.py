@@ -16,55 +16,6 @@ import plotly.graph_objects as go
 # =========================================================
 # Add this RIGHT AFTER the imports, before load_data_cached()
 
-def squarify_layout(sizes, x, y, width, height):
-    """
-    Simple squarified treemap layout algorithm
-    Returns list of (x, y, width, height) tuples for each size
-    """
-    if not sizes:
-        return []
-    
-    rectangles = []
-    total = sum(sizes)
-    
-    if total == 0:
-        return [(x, y, width/len(sizes), height) for _ in sizes]
-    
-    # Normalize sizes to fill the available area
-    normalized = [(s / total) * (width * height) for s in sizes]
-    
-    # Simple row-based layout
-    current_x = x
-    current_y = y
-    row_height = height / (len(sizes) ** 0.5)  # Approximate square-ish layout
-    
-    for i, area in enumerate(normalized):
-        if area == 0:
-            continue
-            
-        rect_width = area / row_height if row_height > 0 else width / len(sizes)
-        
-        # Check if we need to start a new row
-        if current_x + rect_width > x + width:
-            current_x = x
-            current_y += row_height
-            
-            # Recalculate row height for remaining items
-            remaining = len(sizes) - i
-            if remaining > 0:
-                row_height = (y + height - current_y) / (remaining ** 0.5)
-                rect_width = area / row_height if row_height > 0 else width / remaining
-        
-        # Ensure we don't exceed bounds
-        if current_x + rect_width > x + width:
-            rect_width = x + width - current_x
-        if current_y + row_height > y + height:
-            row_height = y + height - current_y
-        
-        rectangles.append((current_x, current_y, rect_width, row_height))
-        current_x += rect_width
-    
-    return rectangles
 
 GDRIVE_FILE_ID = "1bRlaGhB2m_NNugf0iSjYFkff1kmqBytu"
 GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
@@ -334,8 +285,75 @@ def top3_urls(df, group_col):
 # =========================================================
 # TREEMAP FUNCTIONS
 # =========================================================
+def grid_layout(sizes, x, y, width, height, max_cols=4):
+    """
+    Create a grid layout that preserves order left-to-right, top-to-bottom
+    Items are already sorted by metric before calling this
+    """
+    if not sizes or len(sizes) == 0:
+        return []
+    
+    n = len(sizes)
+    rectangles = []
+    
+    # Determine grid dimensions
+    cols = min(max_cols, n)
+    rows = (n + cols - 1) // cols  # Ceiling division
+    
+    total_area = sum(sizes)
+    if total_area == 0:
+        # Equal sizes if all are zero
+        cell_width = width / cols
+        cell_height = height / rows
+        for i in range(n):
+            row = i // cols
+            col = i % cols
+            rectangles.append((
+                x + col * cell_width,
+                y + row * cell_height,
+                cell_width,
+                cell_height
+            ))
+        return rectangles
+    
+    # Calculate relative sizes for each row
+    for row_idx in range(rows):
+        start_idx = row_idx * cols
+        end_idx = min(start_idx + cols, n)
+        row_items = sizes[start_idx:end_idx]
+        
+        if not row_items:
+            break
+        
+        row_total = sum(row_items)
+        if row_total == 0:
+            row_total = len(row_items)
+            row_items = [1] * len(row_items)
+        
+        # Row height proportional to total size in row
+        row_height = height / rows
+        
+        # Distribute width based on relative sizes
+        current_x = x
+        for i, size in enumerate(row_items):
+            rect_width = (size / row_total) * width if row_total > 0 else width / len(row_items)
+            
+            rectangles.append((
+                current_x,
+                y + row_idx * row_height,
+                rect_width,
+                row_height
+            ))
+            current_x += rect_width
+    
+    return rectangles
+
+
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
-    """Create custom treemap with 2D layout for better readability"""
+    """
+    Create treemap with left-to-right ordering by metric_sort
+    Color by metric_color, size by clicks
+    """
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
         fig = go.Figure()
@@ -350,21 +368,23 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'mnet_roas': 'mean', 'adv_roas': 'mean'
         }).reset_index()
         
-        g['ctr'] = np.where(g['impressions']>0, 100*g['clicks']/g['impressions'], np.nan)
-        g['cvr'] = np.where(g['clicks']>0, 100*g['conversions']/g['clicks'], np.nan)
-        g['cpa'] = np.where(g['conversions']>0, g['adv_cost']/g['conversions'], np.nan)
-        g['mnet_roas'] = np.where(g['max_cost']>0, g['adv_value']/g['max_cost'], np.nan)
+        g['ctr'] = np.where(g['impressions']>0, 100*g['clicks']/g['impressions'], 0)
+        g['cvr'] = np.where(g['clicks']>0, 100*g['conversions']/g['clicks'], 0)
+        g['cpa'] = np.where(g['conversions']>0, g['adv_cost']/g['conversions'], 0)
+        g['mnet_roas'] = np.where(g['max_cost']>0, g['adv_value']/g['max_cost'], 0)
     
-    # Take top N and sort
+    # Take top N by clicks
     g = g.nlargest(min(top_n, len(g)), 'clicks')
+    
+    # CRITICAL: Sort by metric_sort for left-to-right ordering
     if metric_sort == 'cpa':
-        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)
+        g = g.sort_values(metric_sort, ascending=True).reset_index(drop=True)  # Lower CPA is better, so left
     else:
-        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)
+        g = g.sort_values(metric_sort, ascending=False).reset_index(drop=True)  # Higher is better, so left
     
     label_col = col_name if col_name in g.columns else 'concepts'
     
-    # Calculate color mapping
+    # Calculate color mapping based on metric_color
     avg = g[metric_color].mean()
     std = g[metric_color].std()
     
@@ -375,7 +395,8 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CVR: ' + g['cvr'].round(2).astype(str) + '%<br>' +
-            'CTR: ' + g['ctr'].round(2).astype(str) + '%'
+            'CTR: ' + g['ctr'].round(2).astype(str) + '%<br>' +
+            '💡 Click to drill-down'
         )
     else:
         g['hover_text'] = (
@@ -383,46 +404,47 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
             'CPA: $' + g['cpa'].round(2).astype(str) + '<br>' +
-            'ROAS: ' + g['mnet_roas'].round(2).astype(str)
+            'ROAS: ' + g['mnet_roas'].round(2).astype(str) + '<br>' +
+            '💡 Click to drill-down'
         )
     
-    # Log-scale sizes for visual weight
+    # Log-scale sizes for visual weight (but maintain proportions)
     log_clicks = np.log1p(g['clicks'])
     min_log = log_clicks.min()
     max_log = log_clicks.max()
     if max_log > min_log:
-        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log) + 0.1
+        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log) + 0.3  # Min size 0.3
     else:
         g['normalized_size'] = 1.0
     
-    # Calculate 2D layout using squarified algorithm
+    # Calculate layout - items are ALREADY SORTED by metric_sort
     sizes = g['normalized_size'].tolist()
-    rectangles = squarify_layout(sizes, 0, 0, 1, 1)
+    rectangles = grid_layout(sizes, 0, 0, 1, 1, max_cols=4)
     
     # Color mapping function
     def get_color(value):
         if pd.isna(value):
             return '#666666'
         if value >= avg + 0.5 * std:
-            return '#00cc00'  # Green
+            return '#00cc00'  # Bright green - excellent
         elif value >= avg:
-            return '#7FE57F'  # Light green
+            return '#7FE57F'  # Light green - good
         elif value >= avg - 0.5 * std:
-            return '#ffcc00'  # Yellow
+            return '#ffcc00'  # Yellow - average
         elif value >= avg - std:
-            return '#ff9900'  # Orange
+            return '#ff9900'  # Orange - below average
         else:
-            return '#cc0000'  # Red
+            return '#cc0000'  # Red - poor
     
     # Create figure
     fig = go.Figure()
     
-    # Add rectangles as shapes and clickable scatter points
+    # Add rectangles and clickable points
     for idx, (row, (x, y, w, h)) in enumerate(zip(g.iterrows(), rectangles)):
-        row = row[1]  # Get the actual row data
+        row = row[1]
         color = get_color(row[metric_color])
         
-        # Add rectangle
+        # Add rectangle shape
         fig.add_shape(
             type="rect",
             x0=x, x1=x+w, y0=y, y1=y+h,
@@ -431,59 +453,58 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             layer='below'
         )
         
-        # Determine font size based on box size
+        # Determine font size
         box_area = w * h
         if box_area > 0.15:
-            font_size = 11
+            font_size = 12
         elif box_area > 0.08:
-            font_size = 9
+            font_size = 10
         else:
-            font_size = 7
+            font_size = 8
         
-        # Add text annotation
-        label_text = f"#{idx+1}<br>{str(row[label_col])[:30]}<br>({int(row['clicks'])})"
+        # Add rank, label, and metric values
+        if show_cvr_ctr:
+            label_text = f"#{idx+1}: {str(row[label_col])[:25]}<br>Clicks: {int(row['clicks'])}<br>CTR: {row['ctr']:.1f}%"
+        else:
+            label_text = f"#{idx+1}: {str(row[label_col])[:25]}<br>Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.1f}"
+        
         fig.add_annotation(
-            x=x + w/2,
-            y=y + h/2,
+            x=x + w/2, y=y + h/2,
             text=label_text,
             showarrow=False,
             font=dict(size=font_size, color='white', family='Arial Black'),
-            xanchor='center',
-            yanchor='middle',
-            bgcolor='rgba(0,0,0,0.3)',
+            xanchor='center', yanchor='middle',
+            bgcolor='rgba(0,0,0,0.4)',
             borderpad=4
         )
         
-        # Add clickable scatter point covering the entire box
+        # Add clickable invisible scatter point
         fig.add_trace(go.Scatter(
-            x=[x + w/2],
-            y=[y + h/2],
+            x=[x + w/2], y=[y + h/2],
             mode='markers',
-            marker=dict(
-                size=max(w, h) * 500,  # Scale marker to cover box
-                opacity=0,
-                color=color
-            ),
+            marker=dict(size=max(w, h) * 600, opacity=0, color=color),
             hovertext=row['hover_text'],
             hoverinfo='text',
             showlegend=False,
-            customdata=[[row[label_col]]],  # Pass original label for drill-down
+            customdata=[[row[label_col]]],
             name=''
         ))
     
-    # Add stats annotation
+    # Add legend/stats annotation
     if avg_metrics:
         if show_cvr_ctr:
-            stats_text = f"Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | Sorted by {metric_sort.upper()} DESC | 💡 Click boxes to drill down"
+            stats_text = (f"📊 Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | "
+                         f"Sorted by {metric_sort.upper()} (Left=Best) | 💡 Click to drill-down")
         else:
-            stats_text = f"Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | Sorted by {metric_sort.upper()} ASC | 💡 Click boxes to drill down"
+            stats_text = (f"📊 Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | "
+                         f"Sorted by {metric_sort.upper()} (Left=Best) | 💡 Click to drill-down")
         
         fig.add_annotation(
             text=stats_text,
             xref="paper", yref="paper",
-            x=0.5, y=-0.1,
+            x=0.5, y=-0.08,
             showarrow=False,
-            font=dict(size=11, color='#5dade2', family='Arial Black'),
+            font=dict(size=12, color='#5dade2', family='Arial Black'),
             align='center'
         )
     
@@ -495,12 +516,13 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         font=dict(color='white', size=12),
         xaxis=dict(visible=False, range=[0, 1]),
         yaxis=dict(visible=False, range=[0, 1]),
-        margin=dict(l=20, r=20, t=80, b=100),
+        margin=dict(l=20, r=20, t=80, b=80),
         hovermode='closest',
         clickmode='event+select'
     )
     
     return fig
+
 # BUBBLE CHART
 # =========================================================
 def bubble_chart(g, x_col, metric, hover_map, title, top_n=5):
