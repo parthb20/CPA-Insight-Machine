@@ -17,6 +17,7 @@ import colorsys
 # CONFIG & LOAD DATA FROM GOOGLE DRIVE
 # =========================================================
 # Add this RIGHT AFTER the imports, before load_data_cached()
+register_page(__name__, path='/', name='URL Dashboard')
 
 
 GDRIVE_FILE_ID = "1bRlaGhB2m_NNugf0iSjYFkff1kmqBytu"
@@ -332,25 +333,16 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     def get_color(value):
         if pd.isna(value):
             return '#666666'
-        
-        if metric_color == 'cpa':
-            if value <= avg - std:
-                return '#00cc00'
-            elif value <= avg:
-                return '#99ff99'
-            elif value <= avg + std:
-                return '#ffcc00'
-            else:
-                return '#ff3333'
+        if value >= avg + 0.2 * std:
+            return '#00cc00'  # Bright green - excellent
+        elif value >= avg:
+            return '#7FE57F'  # Light green - good
+        elif value >= avg - 0.2 * std:
+            return '#ffcc00'  # Yellow - average
+        elif value >= avg - 0.5*std:
+            return '#ff9900'  # Orange - below average
         else:
-            if value >= avg + std:
-                return '#00cc00'
-            elif value >= avg:
-                return '#99ff99'
-            elif value >= avg - std:
-                return '#ffcc00'
-            else:
-                return '#ff3333'
+            return '#cc0000'  # Red - poor
     
     # Create hover text
     if show_cvr_ctr:
@@ -831,7 +823,6 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     # BUBBLE CHARTS - Sprig URL & Domain (Top) - 2x2
 ])
 
-register_page(__name__, path='/', name='URL Dashboard')
 
 # =========================================================
 # CALLBACKS
