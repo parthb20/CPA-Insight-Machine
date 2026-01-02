@@ -17,6 +17,7 @@ import colorsys
 # CONFIG & LOAD DATA FROM GOOGLE DRIVE
 # =========================================================
 # Add this RIGHT AFTER the imports, before load_data_cached()
+register_page(__name__, path='/', name='URL Dashboard')
 
 
 GDRIVE_FILE_ID = "1bRlaGhB2m_NNugf0iSjYFkff1kmqBytu"
@@ -822,7 +823,6 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     # BUBBLE CHARTS - Sprig URL & Domain (Top) - 2x2
 ])
 
-register_page(__name__, path='/', name='URL Dashboard')
 
 # =========================================================
 # CALLBACKS
