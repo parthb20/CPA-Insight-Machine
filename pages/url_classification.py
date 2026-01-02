@@ -11,50 +11,97 @@ import io
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
-GDRIVE_FILE_ID = "1bRlaGhB2m_NNugf0iSjYFkff1kmqBytu"
+# =========================================================
+# CONFIG & LOAD DATA FROM GOOGLE DRIVE
+# =========================================================
+# Add this RIGHT AFTER the imports, before load_data_cached()
 
-# Convert to direct download link
+def squarify_layout(sizes, x, y, width, height):
+    """
+    Simple squarified treemap layout algorithm
+    Returns list of (x, y, width, height) tuples for each size
+    """
+    if not sizes:
+        return []
+    
+    rectangles = []
+    total = sum(sizes)
+    
+    if total == 0:
+        return [(x, y, width/len(sizes), height) for _ in sizes]
+    
+    # Normalize sizes to fill the available area
+    normalized = [(s / total) * (width * height) for s in sizes]
+    
+    # Simple row-based layout
+    current_x = x
+    current_y = y
+    row_height = height / (len(sizes) ** 0.5)  # Approximate square-ish layout
+    
+    for i, area in enumerate(normalized):
+        if area == 0:
+            continue
+            
+        rect_width = area / row_height if row_height > 0 else width / len(sizes)
+        
+        # Check if we need to start a new row
+        if current_x + rect_width > x + width:
+            current_x = x
+            current_y += row_height
+            
+            # Recalculate row height for remaining items
+            remaining = len(sizes) - i
+            if remaining > 0:
+                row_height = (y + height - current_y) / (remaining ** 0.5)
+                rect_width = area / row_height if row_height > 0 else width / remaining
+        
+        # Ensure we don't exceed bounds
+        if current_x + rect_width > x + width:
+            rect_width = x + width - current_x
+        if current_y + row_height > y + height:
+            row_height = y + height - current_y
+        
+        rectangles.append((current_x, current_y, rect_width, row_height))
+        current_x += rect_width
+    
+    return rectangles
+
+GDRIVE_FILE_ID = "1bRlaGhB2m_NNugf0iSjYFkff1kmqBytu"
 GDRIVE_URL = f"https://drive.google.com/uc?export=download&id={GDRIVE_FILE_ID}"
 
 @lru_cache(maxsize=1)
+
 def load_data_cached():
     """Load data once and cache it"""
     try:
         response = requests.get(GDRIVE_URL)
         response.raise_for_status()
-        return pd.read_csv(io.StringIO(response.text))
+        df_temp = pd.read_csv(io.StringIO(response.text))
+        print(f"✅ Data loaded: {len(df_temp)} rows, {len(df_temp.columns)} columns")
+        print(f"Columns found: {df_temp.columns.tolist()}")
+        return df_temp
     except Exception as e:
-        print(f"Error loading data: {e}")
+        print(f"❌ Error loading data: {e}")
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame()
 
-# Replace line ~41 with:
 df = load_data_cached()
-
-register_page(__name__, path='/', name='URL')
-
-# [REST OF YOUR CURRENT CODE - just remove the app.run() at bottom]
-# ... all your existing code ...
-
-
-
-# =========================================================
-# CONFIG
-# =========================================================
-# =========================================================
-# CONFIG & LOAD DATA FROM GOOGLE DRIVE
-# =========================================================
-
-
-# Google Drive file ID - REPLACE THIS with your actual file ID
-
-# =========================================================
-# LOAD DATA
-# =========================================================
-
 
 # =========================================================
 # COLUMN NORMALIZATION
 # =========================================================
+
+# Check if data loaded
+if len(df) == 0:
+    print("⚠️ WARNING: No data loaded! Check Google Drive link permissions.")
+else:
+    print(f"Processing {len(df)} rows...")
+
+# Clean column names first (remove extra spaces)
+df.columns = df.columns.str.strip()
+
+# Updated COL_MAP based on your actual columns
 COL_MAP = {
     'Advertiser': 'advertiser',
     'Campaign Type': 'campaign_type',
@@ -73,24 +120,42 @@ COL_MAP = {
     'Mnet ROAS': 'mnet_roas',
     'Adv ROAS': 'adv_roas'
 }
-df = df.rename(columns={c: COL_MAP[c] for c in df.columns if c in COL_MAP})
-for col in ['advertiser', 'campaign_type', 'campaign', 'domain', 
-            'sprig_url_top', 'sprig_url_final', 'sprig_domain_top', 'sprig_domain_final']:
+
+# Rename columns
+df = df.rename(columns=COL_MAP)
+
+# If CVR, CTR, CPA already exist in CSV, drop them so we calculate fresh
+for col in ['CVR', 'CTR', 'CPA']:
     if col in df.columns:
-        df[col] = df[col].astype('category')
-for c in ['clicks','impressions','conversions','adv_cost','max_cost','adv_value','mnet_roas','adv_roas']:
+        df = df.drop(columns=[col])
+        print(f"Dropped existing {col} column")
+
+# Convert to categorical
+for col in ['advertiser', 'campaign_type', 'campaign', 'domain']:
+    if col in df.columns:
+        df[col] = df[col].astype(str).astype('category')
+
+# Ensure numeric columns exist and are numeric
+for c in ['clicks', 'impressions', 'conversions', 'adv_cost', 'max_cost', 'adv_value', 'mnet_roas', 'adv_roas']:
     if c not in df.columns:
         df[c] = 0
+        print(f"⚠️ Created missing column: {c}")
     df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
+print(f"✅ Columns after processing: {df.columns.tolist()}")
+print(f"✅ Sample data:\n{df.head(2)}")
 
 # =========================================================
-# METRICS
+# METRICS - Calculate derived metrics
 # =========================================================
-df['ctr'] = np.where(df['impressions']>0, 100*df['clicks']/df['impressions'], np.nan)
-df['cvr'] = np.where(df['clicks']>0, 100*df['conversions']/df['clicks'], np.nan)
-df['cpa'] = np.where(df['conversions']>0, df['adv_cost']/df['conversions'], np.nan)
+df['ctr'] = np.where(df['impressions'] > 0, 100 * df['clicks'] / df['impressions'], 0)
+df['cvr'] = np.where(df['clicks'] > 0, 100 * df['conversions'] / df['clicks'], 0)
+df['cpa'] = np.where(df['conversions'] > 0, df['adv_cost'] / df['conversions'], 0)
 
+# Recalculate mnet_roas if max_cost > 0
+df['mnet_roas'] = np.where(df['max_cost'] > 0, df['adv_value'] / df['max_cost'], 0)
+
+print(f"✅ Metrics calculated. Sample CVR: {df['cvr'].head()}")
 # =========================================================
 # SPRIG PARSING
 # =========================================================
@@ -926,6 +991,8 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     
     # BUBBLE CHARTS - Sprig URL & Domain (Top) - 2x2
 ])
+
+register_page(__name__, path='/', name='URL Dashboard')
 
 # =========================================================
 # CALLBACKS
