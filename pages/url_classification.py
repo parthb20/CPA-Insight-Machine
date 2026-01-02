@@ -592,18 +592,6 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     # TREEMAPS - FULL WIDTH, ONE BELOW OTHER with drill-down modal
     html.H4("Concept Analysis - Treemaps (Top 10, click to drill-down)", style={'color': '#17a2b8', 'marginTop': '20px'}),
     # Add after the treemap title, before the treemaps
-    dbc.Row([
-        dbc.Col([
-            html.Label("Filter by Concept:", style={'color': 'white'}),
-            dcc.Dropdown(
-                id='concept_filter_dd',
-                multi=False,
-                placeholder="All concepts",
-                options=[],
-                style={'color': 'black'}
-                )
-            ], width=3)
-        ], style={'marginBottom': '15px'}),
     dcc.Loading(
         dcc.Graph(id='treemap_cvr_ctr', clickData=None),
         type="circle",  # or "default", "dot", "cube"
