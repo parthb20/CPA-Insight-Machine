@@ -333,13 +333,13 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     def get_color(value):
         if pd.isna(value):
             return '#666666'
-        if value >= avg + 0.2 * std:
+        if value >= avg + 0.1 * std:
             return '#00cc00'  # Bright green - excellent
         elif value >= avg:
             return '#7FE57F'  # Light green - good
-        elif value >= avg - 0.2 * std:
+        elif value >= avg - 0.1 * std:
             return '#ffcc00'  # Yellow - average
-        elif value >= avg - 0.5*std:
+        elif value >= avg - 0.2*std:
             return '#ff9900'  # Orange - below average
         else:
             return '#cc0000'  # Red - poor
@@ -1503,3 +1503,4 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     new_data.append(detail_row)
         
         return new_data, expanded_rows
+
