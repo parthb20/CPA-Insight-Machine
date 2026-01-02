@@ -285,69 +285,71 @@ def top3_urls(df, group_col):
 # =========================================================
 # TREEMAP FUNCTIONS
 # =========================================================
-def grid_layout(sizes, x, y, width, height, max_cols=4):
+def squarified_layout(sizes, x, y, width, height):
     """
-    Create a grid layout that preserves order left-to-right, top-to-bottom
-    Items are already sorted by metric before calling this
+    Squarified treemap layout algorithm
+    Creates rectangles with better aspect ratios, arranged by size (largest first)
     """
     if not sizes or len(sizes) == 0:
         return []
     
-    n = len(sizes)
+    # Items are already sorted by metric, so maintain that order
+    # but arrange them in a way that's visually clear
     rectangles = []
     
-    # Determine grid dimensions
-    cols = min(max_cols, n)
-    rows = (n + cols - 1) // cols  # Ceiling division
+    def worst_ratio(row, width):
+        """Calculate worst aspect ratio in a row"""
+        if not row or width == 0:
+            return float('inf')
+        total = sum(row)
+        if total == 0:
+            return float('inf')
+        min_val = min(row)
+        max_val = max(row)
+        return max(
+            (width * width * max_val) / (total * total),
+            (total * total) / (width * width * min_val)
+        )
     
-    total_area = sum(sizes)
-    if total_area == 0:
-        # Equal sizes if all are zero
-        cell_width = width / cols
-        cell_height = height / rows
-        for i in range(n):
-            row = i // cols
-            col = i % cols
-            rectangles.append((
-                x + col * cell_width,
-                y + row * cell_height,
-                cell_width,
-                cell_height
-            ))
-        return rectangles
-    
-    # Calculate relative sizes for each row
-    for row_idx in range(rows):
-        start_idx = row_idx * cols
-        end_idx = min(start_idx + cols, n)
-        row_items = sizes[start_idx:end_idx]
+    def layout_row(row, x, y, width, height):
+        """Layout a single row of rectangles"""
+        nonlocal rectangles
+        if not row:
+            return
+        total = sum(row)
+        if total == 0:
+            return
         
-        if not row_items:
-            break
+        covered_width = 0
+        for size in row:
+            if total > 0:
+                rect_width = (size / total) * width
+            else:
+                rect_width = width / len(row)
+            rectangles.append((x + covered_width, y, rect_width, height))
+            covered_width += rect_width
+    
+    # Simple row-by-row layout for better visual order
+    remaining = list(sizes)
+    current_y = y
+    items_per_row = 3  # Show 3 items per row for better proportions
+    
+    while remaining:
+        row_items = remaining[:items_per_row]
+        remaining = remaining[items_per_row:]
         
         row_total = sum(row_items)
-        if row_total == 0:
-            row_total = len(row_items)
-            row_items = [1] * len(row_items)
+        total_remaining = sum(remaining) + row_total
         
-        # Row height proportional to total size in row
-        row_height = height / rows
+        if total_remaining > 0:
+            row_height = (row_total / total_remaining) * height if remaining else height - (current_y - y)
+        else:
+            row_height = height / max(1, (len(sizes) + items_per_row - 1) // items_per_row)
         
-        # Distribute width based on relative sizes
-        current_x = x
-        for i, size in enumerate(row_items):
-            rect_width = (size / row_total) * width if row_total > 0 else width / len(row_items)
-            
-            rectangles.append((
-                current_x,
-                y + row_idx * row_height,
-                rect_width,
-                row_height
-            ))
-            current_x += rect_width
+        layout_row(row_items, x, current_y, width, min(row_height, height - (current_y - y)))
+        current_y += row_height
     
     return rectangles
-
 
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
     """
@@ -407,19 +409,12 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             'ROAS: ' + g['mnet_roas'].round(2).astype(str) + '<br>' +
             '💡 Click to drill-down'
         )
-    
-    # Log-scale sizes for visual weight (but maintain proportions)
-    log_clicks = np.log1p(g['clicks'])
-    min_log = log_clicks.min()
-    max_log = log_clicks.max()
-    if max_log > min_log:
-        g['normalized_size'] = (log_clicks - min_log) / (max_log - min_log) + 0.3  # Min size 0.3
-    else:
-        g['normalized_size'] = 1.0
+    # Use actual click values for sizing (with log scaling for visual balance)
+    g['size'] = np.log1p(g['clicks'])  # log(1+x) for better distribution
     
     # Calculate layout - items are ALREADY SORTED by metric_sort
-    sizes = g['normalized_size'].tolist()
-    rectangles = grid_layout(sizes, 0, 0, 1, 1, max_cols=4)
+    sizes = g['size'].tolist()
+    rectangles = squarified_layout(sizes, 0, 0, 1, 1)
     
     # Color mapping function
     def get_color(value):
@@ -453,20 +448,35 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             layer='below'
         )
         
-        # Determine font size
+        # Determine font size based on box area
         box_area = w * h
         if box_area > 0.15:
-            font_size = 12
+            font_size = 14
+            show_rank = True
         elif box_area > 0.08:
-            font_size = 10
+            font_size = 11
+            show_rank = True
         else:
-            font_size = 8
+            font_size = 9
+            show_rank = False
         
-        # Add rank, label, and metric values
+        # Create label with rank and key metrics
+        rank_indicator = f"#{idx+1}" if show_rank else f"{idx+1}"
+        
         if show_cvr_ctr:
-            label_text = f"#{idx+1}: {str(row[label_col])[:25]}<br>Clicks: {int(row['clicks'])}<br>CTR: {row['ctr']:.1f}%"
+            if box_area > 0.15:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:30]}<br>Clicks: {int(row['clicks'])}<br>CVR: {row['cvr']:.1f}% | CTR: {row['ctr']:.1f}%"
+            elif box_area > 0.08:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:25]}<br>Cl: {int(row['clicks'])} | CVR: {row['cvr']:.1f}%"
+            else:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:15]}<br>{int(row['clicks'])}"
         else:
-            label_text = f"#{idx+1}: {str(row[label_col])[:25]}<br>Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.1f}"
+            if box_area > 0.15:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:30]}<br>Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.1f} | ROAS: {row['mnet_roas']:.1f}"
+            elif box_area > 0.08:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:25]}<br>Cl: {int(row['clicks'])} | CPA: ${row['cpa']:.1f}"
+            else:
+                label_text = f"{rank_indicator}: {str(row[label_col])[:15]}<br>${int(row['cpa'])}"
         
         fig.add_annotation(
             x=x + w/2, y=y + h/2,
@@ -474,9 +484,22 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             showarrow=False,
             font=dict(size=font_size, color='white', family='Arial Black'),
             xanchor='center', yanchor='middle',
-            bgcolor='rgba(0,0,0,0.4)',
+            bgcolor='rgba(0,0,0,0.5)',
             borderpad=4
         )
+        
+        # Add size indicator for larger boxes
+        if box_area > 0.12:
+            fig.add_annotation(
+                x=x + w - 0.01, y=y + 0.01,
+                text=f"{int(row['clicks'])} clicks",
+                showarrow=False,
+                font=dict(size=9, color='rgba(255,255,255,0.7)'),
+                xanchor='right', yanchor='bottom',
+                bgcolor='rgba(0,0,0,0.3)',
+                borderpad=2
+            )
+        
         
         # Add clickable invisible scatter point
         fig.add_trace(go.Scatter(
@@ -1419,7 +1442,10 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
     
     # Filter based on the clicked value
     if drill_col == 'concepts':
-        d = d[d['concepts'].apply(lambda x: clicked_value in x if isinstance(x, list) else False)]
+        # For concepts, filter exploded dataframe
+        d_exploded = df_concepts.copy()
+        d_exploded = filter_dataframe(d_exploded, advs, camp_types, camps)
+        d = d_exploded[d_exploded['concepts'] == clicked_value]
     else:
         d = d[d[drill_col] == clicked_value]
     
@@ -1433,7 +1459,7 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         )
         return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None
     
-    # Aggregate by domain
+    # Aggregate by domain - take top 10
     g_drill = weighted_aggregate(d, 'domain')
     
     if len(g_drill) == 0:
@@ -1446,8 +1472,14 @@ def handle_treemap_click(click_cvr, click_roas, click_url_top_cvr, click_url_top
         )
         return True, f"Drill-down: {clicked_value}", fig, None, None, None, None, None, None
     
-    # Take top 10 domains by clicks
-    g_drill = g_drill.nlargest(10, 'clicks')
+    # Take top 10 domains by clicks and sort by selected metric
+    g_drill = g_drill.nlargest(min(10, len(g_drill)), 'clicks')
+    
+    # Sort by the same metric as parent
+    if metric_sort == 'cpa':
+        g_drill = g_drill.sort_values(metric_sort, ascending=True).reset_index(drop=True)
+    else:
+        g_drill = g_drill.sort_values(metric_sort, ascending=False).reset_index(drop=True)
     
     # Calculate aggregated stats for this drill-down
     total_clicks = d['clicks'].sum()
