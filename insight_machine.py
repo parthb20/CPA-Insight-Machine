@@ -19,7 +19,7 @@ navbar = dbc.NavbarSimple(
         dbc.NavItem(dbc.NavLink("URL Analysis", href="/", active="exact")),
         dbc.NavItem(dbc.NavLink("Creative & SERP", href="/creative", active="exact"))
     ],
-    brand="CPA Insight Dashboard",
+    brand="CPA Insight Dashboard [2-16 Dec]",
     brand_href="/overview",
     color="#17a2b8",
     dark=True,
@@ -42,3 +42,4 @@ app.layout = dbc.Container(
 
 if __name__ == "__main__":
     app.run(debug=True)
+
