@@ -290,7 +290,7 @@ def top3_urls(df, group_col):
 def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n=10, col_name='concepts', avg_metrics=None):
     """
     Create treemap with left-to-right ordering by metric_sort
-    Color by metric_color, size by log(clicks)
+    Tight grid layout with proper sizing
     """
     g = g.dropna(subset=[metric_color, metric_sort])
     if len(g) == 0:
@@ -328,40 +328,42 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     min_val = g[metric_color].min()
     max_val = g[metric_color].max()
     
-    # Color function
+    # Color function - improved gradient
     def get_color(value):
         """Generate color based on value relative to average"""
         if pd.isna(value):
             return '#666666'
         
-        # Calculate deviation from average
-        if avg == 0:
-            norm = 0
-        elif value >= avg:
-            # Above average: yellow to green
-            deviation = min((value - avg) / (max_val - avg) if max_val != avg else 0, 1)
-            # Green intensity increases with deviation
-            r = int(255 * (1 - deviation * 0.8))
-            g = 255
-            b = 0
+        # For CPA and CVR/CTR, use different logic
+        if metric_color == 'cpa':
+            # Lower is better for CPA
+            if value <= avg - std:
+                return '#00cc00'  # Dark green (very low CPA)
+            elif value <= avg:
+                return '#99ff99'  # Light green
+            elif value <= avg + std:
+                return '#ffcc00'  # Yellow
+            else:
+                return '#ff3333'  # Red (high CPA)
         else:
-            # Below average: yellow to red
-            deviation = min((avg - value) / (avg - min_val) if avg != min_val else 0, 1)
-            # Red intensity increases with deviation
-            r = 255
-            g = int(255 * (1 - deviation * 0.8))
-            b = 0
-        
-        return f'#{r:02x}{g:02x}{b:02x}'
+            # Higher is better for CVR/CTR/ROAS
+            if value >= avg + std:
+                return '#00cc00'  # Dark green (very high)
+            elif value >= avg:
+                return '#99ff99'  # Light green
+            elif value >= avg - std:
+                return '#ffcc00'  # Yellow
+            else:
+                return '#ff3333'  # Red (low)
     
-    # Create hover text
+    # Create hover text with proper decimal formatting
     if show_cvr_ctr:
         g['hover_text'] = (
             '<b>' + g[label_col].astype(str) + '</b><br>' +
             'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
-            'CVR: ' + g['cvr'].round(2).astype(str) + '%<br>' +
-            'CTR: ' + g['ctr'].round(2).astype(str) + '%<br>' +
+            'CVR: ' + g['cvr'].apply(lambda x: f'{x:.2f}').astype(str) + '%<br>' +
+            'CTR: ' + g['ctr'].apply(lambda x: f'{x:.2f}').astype(str) + '%<br>' +
             '💡 Click to drill-down'
         )
     else:
@@ -369,40 +371,48 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             '<b>' + g[label_col].astype(str) + '</b><br>' +
             'Rank: #' + (g.index + 1).astype(str) + '<br>' +
             'Clicks: ' + g['clicks'].astype(int).astype(str) + '<br>' +
-            'CPA: $' + g['cpa'].round(2).astype(str) + '<br>' +
-            'ROAS: ' + g['mnet_roas'].round(2).astype(str) + '<br>' +
+            'CPA: $' + g['cpa'].apply(lambda x: f'{x:.2f}').astype(str) + '<br>' +
+            'ROAS: ' + g['mnet_roas'].apply(lambda x: f'{x:.2f}').astype(str) + '<br>' +
             '💡 Click to drill-down'
         )
     
-    # Use log-scaled sizes
-    g['size'] = np.log1p(g['clicks'])
-    
-    # Simple grid layout for left-to-right ordering
-    num_items = len(g)
-    items_per_row = 3
-    num_rows = (num_items + items_per_row - 1) // items_per_row
+    # Use log-scaled sizes for better visual distribution
+    g['log_clicks'] = np.log1p(g['clicks'])
+    total_log = g['log_clicks'].sum()
+    g['size_ratio'] = g['log_clicks'] / total_log
     
     # Create figure
     fig = go.Figure()
     
-    # Calculate grid positions (left to right, top to bottom)
+    # Tight packing algorithm - fill rows completely
+    num_items = len(g)
+    
+    # Calculate optimal layout
+    current_x = 0
+    current_y = 0
+    row_height = 0
+    max_width = 1.0
+    gap = 0.01  # Minimal gap between boxes
+    
     for idx, (_, row) in enumerate(g.iterrows()):
-        row_num = idx // items_per_row
-        col_num = idx % items_per_row
+        # Calculate box dimensions based on size ratio
+        # Width proportional to log(clicks), height fills available space
+        box_width = max(0.15, min(0.4, row['size_ratio'] * 3))  # Limit width range
+        box_height = 0.28  # Fixed height for uniform rows
         
-        # Calculate relative size based on log clicks
-        rel_size = row['size'] / g['size'].sum()
+        # Check if we need to wrap to next row
+        if current_x + box_width > max_width and current_x > 0:
+            current_x = 0
+            current_y += row_height + gap
+            row_height = 0
         
-        # Base dimensions
-        base_w = 0.3
-        base_h = 1.0 / num_rows
+        x = current_x
+        y = current_y
+        w = box_width
+        h = box_height
         
-        # Adjust width by relative size (subtle)
-        w = base_w * (0.7 + 0.6 * rel_size * items_per_row)
-        h = base_h * 0.9
-        
-        x = col_num * 0.33
-        y = 1 - (row_num + 1) * (1.0 / num_rows)
+        # Update row height
+        row_height = max(row_height, h)
         
         # Get color
         color = get_color(row[metric_color])
@@ -416,50 +426,68 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             layer='below'
         )
         
-        # Determine font size
+        # Determine font size based on box size
         box_area = w * h
-        font_size = max(9, min(14, int(box_area * 100)))
-        
-        # Create label
-        rank = f"#{idx+1}"
-        label_text = f"{rank}: {str(row[label_col])[:25]}"
-        
-        if show_cvr_ctr:
-            metrics_text = f"Clicks: {int(row['clicks'])}<br>CVR: {row['cvr']:.1f}% | CTR: {row['ctr']:.1f}%"
+        if box_area > 0.08:
+            font_size = 13
+            show_full = True
+        elif box_area > 0.04:
+            font_size = 11
+            show_full = True
         else:
-            metrics_text = f"Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.1f} | ROAS: {row['mnet_roas']:.1f}"
+            font_size = 9
+            show_full = False
+        
+        # Create label with proper decimal formatting
+        rank = f"#{idx+1}"
+        concept_name = str(row[label_col])[:30] if len(str(row[label_col])) > 30 else str(row[label_col])
+        
+        if show_full:
+            if show_cvr_ctr:
+                label_text = f"{rank}: {concept_name}<br>Clicks: {int(row['clicks'])}<br>CVR: {row['cvr']:.2f}% | CTR: {row['ctr']:.2f}%"
+            else:
+                label_text = f"{rank}: {concept_name}<br>Clicks: {int(row['clicks'])}<br>CPA: ${row['cpa']:.2f} | ROAS: {row['mnet_roas']:.2f}"
+        else:
+            # Compact version for small boxes
+            if show_cvr_ctr:
+                label_text = f"{rank}: {concept_name[:15]}<br>{int(row['clicks'])} cl<br>{row['cvr']:.2f}%"
+            else:
+                label_text = f"{rank}: {concept_name[:15]}<br>{int(row['clicks'])} cl<br>${row['cpa']:.2f}"
         
         # Add label annotation
         fig.add_annotation(
             x=x + w/2, y=y + h/2,
-            text=f"{label_text}<br>{metrics_text}",
+            text=label_text,
             showarrow=False,
             font=dict(size=font_size, color='white', family='Arial Black'),
             xanchor='center', yanchor='middle',
-            bgcolor='rgba(0,0,0,0.4)',
-            borderpad=3
+            bgcolor='rgba(0,0,0,0.5)',
+            borderpad=4
         )
         
         # Add clickable scatter point
         fig.add_trace(go.Scatter(
             x=[x + w/2], y=[y + h/2],
             mode='markers',
-            marker=dict(size=max(w, h) * 500, opacity=0, color=color),
+            marker=dict(size=max(w, h) * 600, opacity=0, color=color),
             hovertext=row['hover_text'],
             hoverinfo='text',
             showlegend=False,
             customdata=[[row[label_col]]],
             name=''
         ))
+        
+        # Move to next position
+        current_x += w + gap
     
     # Add stats annotation
     if avg_metrics:
         if show_cvr_ctr:
             stats_text = (f"📊 Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | "
-                         f"Sorted by {metric_sort.upper()} (Left=Best)")
+                         f"Sorted by {metric_sort.upper()} (Left→Right = Best→Worst)")
         else:
             stats_text = (f"📊 Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | "
-                         f"Sorted by {metric_sort.upper()} (Left=Best)")
+                         f"Sorted by {metric_sort.upper()} (Left→Right = Best→Worst)")
         
         fig.add_annotation(
             text=stats_text,
@@ -478,7 +506,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         font=dict(color='white', size=12),
         xaxis=dict(visible=False, range=[0, 1]),
         yaxis=dict(visible=False, range=[0, 1]),
-        margin=dict(l=20, r=20, t=80, b=80),
+        margin=dict(l=20, r=20, t=80, b=100),
         hovermode='closest',
         clickmode='event+select'
     )
@@ -773,16 +801,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
                                   {'label': 'CPA', 'value': 'cpa'},
                                   {'label': 'ROAS', 'value': 'mnet_roas'}],
                          style={'color': 'black'})
-        ], width=2),
-        dbc.Col([
-            html.Label("Filter by parent concept:", style={'color': 'white'}),
-            dcc.Dropdown(
-                id='concept_filter_dd',
-                placeholder="All concepts",
-                options=[],  # Will be populated by callback
-                style={'color': 'black'},
-                clearable=True)
-        ], width=4)
+        ], width=2)
     ], style={'marginBottom': '15px'}),
     #
 # CONCEPT TABLE with drill-down
