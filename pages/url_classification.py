@@ -11,6 +11,8 @@ import io
 import requests
 import plotly.express as px
 import plotly.graph_objects as go
+import colorsys
+
 # =========================================================
 # CONFIG & LOAD DATA FROM GOOGLE DRIVE
 # =========================================================
@@ -423,21 +425,28 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     # Calculate layout - items are ALREADY SORTED by metric_sort
     sizes = g['size'].tolist()
     rectangles = squarified_layout(sizes, 0, 0, 1, 1)
-    
-    # Color mapping function
-    def get_color(value):
-        if pd.isna(value):
+    def get_color(value, avg, max_val=None):
+        if pd.isna(value) or pd.isna(avg):
             return '#666666'
-        if value >= avg + 0.5 * std:
-            return '#00cc00'  # Bright green - excellent
-        elif value >= avg:
-            return '#7FE57F'  # Light green - good
-        elif value >= avg - 0.5 * std:
-            return '#ffcc00'  # Yellow - average
-        elif value >= avg - std:
-            return '#ff9900'  # Orange - below average
+
+    # If max not provided, assume symmetric range
+        if max_val is None:
+            max_val = max(abs(avg - value), avg)
+
+    # Normalize distance from avg (0 → 1)
+        if value >= avg:
+            norm = (value - avg) / (max_val - avg) if max_val != avg else 0
+            hue = 60 + norm * 60      # yellow → green (60° → 120°)
         else:
-            return '#cc0000'  # Red - poor
+            norm = (avg - value) / avg if avg != 0 else 0
+            hue = 60 - norm * 60      # yellow → red (60° → 0°)
+
+        hue = max(0, min(hue, 120))
+        h = hue / 360
+
+        r, g, b = colorsys.hls_to_rgb(h, 0.5, 1.0)
+        return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+
     
     # Create figure
     fig = go.Figure()
