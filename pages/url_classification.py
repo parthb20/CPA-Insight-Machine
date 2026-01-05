@@ -419,10 +419,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
             show_full = False
         
         # Dynamic font color
-        if color in ['#00cc00', '#ff3333']:
-            font_color = 'white'
-        else:
-            font_color = 'black'
+        font_color = 'white'
         
         # Create label
         rank = f"#{idx+1}"
@@ -489,7 +486,7 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
         paper_bgcolor='#111',
         font=dict(color='white', size=12),
         xaxis=dict(visible=False, range=[0, 1]),
-        yaxis=dict(visible=False, range=[0, 1]),
+        yaxis=dict(visible=False, range=[-0.3, 1]),
         margin=dict(l=20, r=20, t=80, b=100),
         hovermode='closest',
         clickmode='event+select'
@@ -1503,5 +1500,6 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     new_data.append(detail_row)
         
         return new_data, expanded_rows
+
 
 
