@@ -465,10 +465,10 @@ def create_treemap(g, metric_color, metric_sort, title, show_cvr_ctr=True, top_n
     if avg_metrics:
         if show_cvr_ctr:
             stats_text = (f"📊 Aggregated: CVR={avg_metrics['cvr']:.2f}% | CTR={avg_metrics['ctr']:.2f}% | "
-                         f"Sorted by {metric_sort.upper()} (Left→Right = Best→Worst)")
+                         f"Sorted by {metric_sort.upper()} (Lower Rank implies Higher Value)")
         else:
             stats_text = (f"📊 Aggregated: CPA=${avg_metrics['cpa']:.2f} | ROAS={avg_metrics['mnet_roas']:.2f} | "
-                         f"Sorted by {metric_sort.upper()} (Left→Right = Best→Worst)")
+                         f"Sorted by {metric_sort.upper()} (Lower Rank implies Higher Value)")
         
         fig.add_annotation(
             text=stats_text,
@@ -1500,6 +1500,7 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     new_data.append(detail_row)
         
         return new_data, expanded_rows
+
 
 
 
