@@ -568,7 +568,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
     html.Hr(style={'borderColor': '#444'}),
 
     # TREEMAPS - FULL WIDTH, ONE BELOW OTHER with drill-down modal
-    html.H4("Concept Analysis - Treemaps (Top 10, click to drill-down)", style={'color': '#17a2b8', 'marginTop': '20px'}),
+    html.H4("URL Concept Analysis - Treemaps (Top 10, click to drill-down, Concepts imply meaningful terms in a URL)", style={'color': '#17a2b8', 'marginTop': '20px'}),
     # Add after the treemap title, before the treemaps
     dcc.Loading(
         dcc.Graph(id='treemap_cvr_ctr', clickData=None),
@@ -1500,6 +1500,7 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     new_data.append(detail_row)
         
         return new_data, expanded_rows
+
 
 
 
