@@ -604,7 +604,7 @@ layout = dbc.Container(fluid=True, style={'backgroundColor': '#111'}, children=[
            style={'color': '#aaa', 'fontSize': '12px', 'marginBottom': '15px'}),
 
     # Concept Table Filters
-    html.H5("📍 Concept Analysis", style={'color': '#17a2b8', 'marginTop': '20px'}),
+    html.H5("📍 URL Concept Analysis", style={'color': '#17a2b8', 'marginTop': '20px'}),
     html.P("Analyzes extracted keywords/concepts from URLs. Click on a concept to see drill-down of related compound terms (e.g., 'blood' → 'blood pressure', 'blood sugar')", 
            style={'color': '#aaa', 'fontSize': '11px', 'fontStyle': 'italic'}),
     dbc.Row([
@@ -1503,4 +1503,5 @@ def toggle_concept_rows(active_cell, table_data, expanded_rows, advs, camp_types
                     new_data.append(detail_row)
         
         return new_data, expanded_rows
+
 
