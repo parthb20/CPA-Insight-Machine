@@ -18,13 +18,13 @@ OVERVIEW_FILE_ID = "1rBbYElP6q67kygrU6lEdEY4OHwzgoa-G"
 OVERVIEW_URL = f"https://drive.google.com/uc?export=download&id={OVERVIEW_FILE_ID}"
 
 # Global variable to cache data (loaded once per worker)
-_cached_df = None
+_cached_overview_df = None  # ← CHANGE NAME
 
 def load_data():
     """Load data with caching to avoid repeated downloads"""
-    global _cached_df
-    if _cached_df is not None:
-        return _cached_df.copy()
+    global _cached_overview_df  # ← CHANGE NAME
+    if _cached_overview_df is not None:
+        return _cached_overview_df.copy()
     
     try:
         response = requests.get(OVERVIEW_URL, timeout=30)
@@ -69,7 +69,8 @@ def load_data():
         df['mnet_roas'] = np.where(df['max_cost'] > 0, df['payout'] / df['max_cost'], 0)
         df['adv_roas'] = np.where(df['adv_cost'] > 0, df['payout'] / df['adv_cost'], 0)
         
-        _cached_df = df
+        _cached_overview_df = df  # ← CHANGE NAME
+
         return df.copy()
         
     except Exception as e:
