@@ -37,6 +37,7 @@ def load_data():
         
         # Rename columns
         COL_MAP = {
+            'Day': 'Day',  # ← ADD THIS - keep Day as is
             'Campaign Type': 'campaign_type',
             'Advertiser': 'advertiser',
             'Campaign': 'campaign',
@@ -46,10 +47,9 @@ def load_data():
             'Advertiser Cost': 'adv_cost',
             'Max System Cost': 'max_cost',
             'Payout': 'payout',
-            'Advertiser Value': 'adv_value',           # ← ADD THIS
-            'Actual Advertiser Payout': 'actual_payout',
-            'Mnet ROAS': 'mnet_roas_csv',              # ← ADD THIS (rename to avoid conflict)
-            'Advertiser ROAS': 'adv_roas_csv'          # ← ADD THIS (rename to avoid conflict)
+            'Advertiser Value': 'adv_value',
+            'Actual Advertiser Payout': 'actual_payout'
+            # Don't map CVR, CTR, CPA, Mnet ROAS, Advertiser ROAS - they'll be recalculated
         }
         df = df.rename(columns={c: COL_MAP[c] for c in df.columns if c in COL_MAP})
         
@@ -654,6 +654,7 @@ def update_daily_trends(filtered_data, selected_metrics, selected_campaigns):
     )
     
     return fig
+
 
 
 
